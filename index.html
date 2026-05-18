@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIDI Maker</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Toolbar ── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #16213e;
+  padding: 10px 16px;
+  border-bottom: 2px solid #e94560;
+  flex-shrink: 0;
+}
+
+#toolbar h1 { font-size: 18px; color: #e94560; white-space: nowrap; }
+
+.ctrl { display: flex; align-items: center; gap: 6px; }
+.ctrl label { font-size: 12px; color: #aaa; white-space: nowrap; }
+
+input[type="number"] {
+  width: 60px; padding: 4px 6px;
+  background: #0f3460; border: 1px solid #e94560;
+  color: white; border-radius: 4px; font-size: 14px; text-align: center;
+}
+
+select {
+  padding: 4px 8px; background: #0f3460;
+  border: 1px solid #555; color: white;
+  border-radius: 4px; font-size: 13px; cursor: pointer;
+}
+
+button {
+  padding: 7px 14px; border: none; border-radius: 5px;
+  cursor: pointer; font-size: 13px; font-weight: bold;
+  transition: opacity 0.15s;
+}
+button:hover { opacity: 0.8; }
+button:active { opacity: 0.6; }
+
+#btn-play  { background: #4caf50; color: #fff; }
+#btn-stop  { background: #f44336; color: #fff; }
+#btn-clear { background: #607d8b; color: #fff; }
+#btn-export{ background: #e94560; color: #fff; }
+
+/* ── Beat / Bar header ── */
+#roll-wrap {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+#left-col {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#corner { width: 56px; height: 24px; background: #0d2040; flex-shrink: 0; }
+
+#key-col {
+  width: 56px;
+  overflow: hidden;
+  flex: 1;
+}
+
+#key-inner {
+  /* height set by JS */
+}
+
+.key-row {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 5px;
+  font-size: 10px;
+  border-bottom: 1px solid #162040;
+  user-select: none;
+  cursor: default;
+}
+.key-row.white { background: #1e3d6e; color: #bbb; }
+.key-row.black { background: #0f1e3a; color: #777; }
+.key-row.c-label { color: #e94560 !important; font-weight: bold; }
+
+#right-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#header-scroll {
+  overflow: hidden;
+  flex-shrink: 0;
+  height: 24px;
+}
+
+#header-row {
+  display: flex;
+  height: 24px;
+  /* width set by JS */
+}
+
+.header-cell {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #aaa;
+  border-right: 1px solid #1a3050;
+  background: #0d2040;
+}
+.header-cell.bar-label { color: #e94560; font-weight: bold; background: #161838; }
+.header-cell.beat-label { color: #7090c0; }
+
+#grid-scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+#grid {
+  display: grid;
+  /* columns & rows set by JS */
+}
+
+.cell {
+  width: 24px;
+  height: 20px;
+  border-right: 1px solid #162040;
+  border-bottom: 1px solid #162040;
+  cursor: crosshair;
+  transition: background 0.05s;
+}
+.cell.white { background: #0d2b55; }
+.cell.black { background: #091a38; }
+.cell.bar-start  { border-left: 2px solid #2a4a8a; }
+.cell.beat-start { border-left: 1px solid #1e3560; }
+.cell.active  { background: #4caf50 !important; }
+.cell.playing { background: #ffeb3b !important; }
+.cell:hover   { filter: brightness(1.4); }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>🎵 MIDI Maker</h1>
+
+  <div class="ctrl">
+    <label>BPM</label>
+    <input type="number" id="bpm" value="120" min="30" max="300">
+  </div>
+
+  <div class="ctrl">
+    <label>音符の長さ</label>
+    <select id="note-len">
+      <option value="1">16分音符</option>
+      <option value="2">8分音符</option>
+      <option value="4" selected>4分音符</option>
+      <option value="8">2分音符</option>
+      <option value="16">全音符</option>
+    </select>
+  </div>
+
+  <div class="ctrl">
+    <label>小節数</label>
+    <select id="num-bars">
+      <option value="2">2小節</option>
+      <option value="4" selected>4小節</option>
+      <option value="8">8小節</option>
+      <option value="16">16小節</option>
+    </select>
+  </div>
+
+  <div class="ctrl">
+    <label>楽器</label>
+    <select id="instrument">
+      <option value="0">アコースティックピアノ</option>
+      <option value="4">エレクトリックピアノ</option>
+      <option value="24">アコースティックギター</option>
+      <option value="25">スチールギター</option>
+      <option value="40">バイオリン</option>
+      <option value="56">トランペット</option>
+      <option value="68">オーボエ</option>
+      <option value="73">フルート</option>
+      <option value="19">教会オルガン</option>
+    </select>
+  </div>
+
+  <button id="btn-play">▶ 再生</button>
+  <button id="btn-stop">■ 停止</button>
+  <button id="btn-clear">🗑 クリア</button>
+  <button id="btn-export">💾 MIDIで保存</button>
+</div>
+
+<div id="roll-wrap">
+  <!-- Left column: corner + key labels -->
+  <div id="left-col">
+    <div id="corner"></div>
+    <div id="key-col"><div id="key-inner"></div></div>
+  </div>
+
+  <!-- Right column: header + grid -->
+  <div id="right-col">
+    <div id="header-scroll"><div id="header-row"></div></div>
+    <div id="grid-scroll">
+      <div id="grid"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────
+const MIDI_LO   = 36;   // C2
+const MIDI_HI   = 84;   // C6 (exclusive)
+const NUM_NOTES = MIDI_HI - MIDI_LO;  // 48
+const STEPS_PER_BAR = 16; // 16th notes
+
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const IS_BLACK   = new Set([1,3,6,8,10]);
+
+const midiToName = m => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
+const isBlack    = m => IS_BLACK.has(m % 12);
+// row 0 = topmost = MIDI_HI - 1
+const rowToMidi  = r => (MIDI_HI - 1) - r;
+
+// ── State ──────────────────────────────────────────────
+let numBars  = 4;
+let numSteps = numBars * STEPS_PER_BAR;
+let grid_data = [];   // grid_data[row][col] boolean
+
+function initData() {
+  grid_data = Array.from({ length: NUM_NOTES }, () => new Array(numSteps).fill(false));
+}
+initData();
+
+// ── Render ─────────────────────────────────────────────
+function buildUI() {
+  buildKeys();
+  buildHeader();
+  buildGrid();
+  scrollToMiddleC();
+}
+
+function buildKeys() {
+  const inner = document.getElementById('key-inner');
+  inner.innerHTML = '';
+  inner.style.height = NUM_NOTES * 20 + 'px';
+  for (let r = 0; r < NUM_NOTES; r++) {
+    const midi = rowToMidi(r);
+    const div  = document.createElement('div');
+    div.className = 'key-row ' + (isBlack(midi) ? 'black' : 'white');
+    if (midi % 12 === 0) {
+      div.classList.add('c-label');
+      div.textContent = midiToName(midi);
+    } else if (!isBlack(midi)) {
+      div.textContent = NOTE_NAMES[midi % 12];
+    } else {
+      div.textContent = '♯';
+    }
+    inner.appendChild(div);
+  }
+}
+
+function buildHeader() {
+  const row = document.getElementById('header-row');
+  row.innerHTML = '';
+  row.style.width = numSteps * 24 + 'px';
+  for (let c = 0; c < numSteps; c++) {
+    const div = document.createElement('div');
+    div.className = 'header-cell';
+    if (c % STEPS_PER_BAR === 0) {
+      div.classList.add('bar-label');
+      div.textContent = 'bar ' + (c / STEPS_PER_BAR + 1);
+    } else if (c % 4 === 0) {
+      div.classList.add('beat-label');
+      div.textContent = (c % STEPS_PER_BAR) / 4 + 1;
+    }
+    row.appendChild(div);
+  }
+}
+
+function buildGrid() {
+  const g = document.getElementById('grid');
+  g.innerHTML = '';
+  g.style.gridTemplateColumns = `repeat(${numSteps}, 24px)`;
+  g.style.gridTemplateRows    = `repeat(${NUM_NOTES}, 20px)`;
+  g.style.width  = numSteps * 24 + 'px';
+  g.style.height = NUM_NOTES * 20 + 'px';
+
+  for (let r = 0; r < NUM_NOTES; r++) {
+    const midi = rowToMidi(r);
+    for (let c = 0; c < numSteps; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell ' + (isBlack(midi) ? 'black' : 'white');
+      if (c % STEPS_PER_BAR === 0)  cell.classList.add('bar-start');
+      else if (c % 4 === 0)          cell.classList.add('beat-start');
+      if (grid_data[r][c])           cell.classList.add('active');
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      cell.addEventListener('mousedown', onDown);
+      cell.addEventListener('mouseenter', onEnter);
+      g.appendChild(cell);
+    }
+  }
+}
+
+function scrollToMiddleC() {
+  // C4 = MIDI 60, row = (MIDI_HI-1) - 60 = 83 - 60 = 23
+  const c4row = (MIDI_HI - 1) - 60;
+  const scrollTarget = c4row * 20 - 100;
+  document.getElementById('grid-scroll').scrollTop = Math.max(0, scrollTarget);
+}
+
+// ── Sync key-col scroll with grid-scroll ───────────────
+document.getElementById('grid-scroll').addEventListener('scroll', function() {
+  document.getElementById('key-col').scrollTop = this.scrollTop;
+  document.getElementById('header-scroll').scrollLeft = this.scrollLeft;
+});
+
+// ── Mouse interaction ──────────────────────────────────
+let mouseDown = false;
+let dragMode  = null; // 'add' | 'remove'
+
+document.addEventListener('mousedown', () => mouseDown = true);
+document.addEventListener('mouseup',   () => { mouseDown = false; dragMode = null; });
+
+function onDown(e) {
+  e.preventDefault();
+  const r = +e.currentTarget.dataset.r;
+  const c = +e.currentTarget.dataset.c;
+  if (grid_data[r][c]) {
+    dragMode = 'remove';
+    removeNote(r, c);
+  } else {
+    dragMode = 'add';
+    addNote(r, c);
+  }
+}
+
+function onEnter(e) {
+  if (!mouseDown || !dragMode) return;
+  const r = +e.currentTarget.dataset.r;
+  const c = +e.currentTarget.dataset.c;
+  if (dragMode === 'add')    addNote(r, c);
+  if (dragMode === 'remove') removeNote(r, c);
+}
+
+function addNote(r, c) {
+  const len = +document.getElementById('note-len').value;
+  for (let i = 0; i < len && c + i < numSteps; i++) {
+    grid_data[r][c + i] = true;
+    cellEl(r, c + i)?.classList.add('active');
+  }
+}
+
+function removeNote(r, c) {
+  grid_data[r][c] = false;
+  cellEl(r, c)?.classList.remove('active');
+}
+
+function cellEl(r, c) {
+  return document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+}
+
+// ── Bar count change ───────────────────────────────────
+document.getElementById('num-bars').addEventListener('change', function() {
+  const newBars  = +this.value;
+  const newSteps = newBars * STEPS_PER_BAR;
+  for (let r = 0; r < NUM_NOTES; r++) {
+    if (newSteps > numSteps) {
+      for (let c = numSteps; c < newSteps; c++) grid_data[r].push(false);
+    } else {
+      grid_data[r].length = newSteps;
+    }
+  }
+  numBars  = newBars;
+  numSteps = newSteps;
+  buildHeader();
+  buildGrid();
+});
+
+// ── Playback ───────────────────────────────────────────
+let audioCtx   = null;
+let playing    = false;
+let playTimer  = null;
+let curStep    = 0;
+let nextTime   = 0;
+let lastHighRow = -1, lastHighCol = -1;
+
+function stepDuration() {
+  return 60 / (+document.getElementById('bpm').value) / 4; // 16th note sec
+}
+
+function midiToFreq(m) { return 440 * 2 ** ((m - 69) / 12); }
+
+function scheduleNote(midi, when, dur) {
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'triangle';
+  osc.frequency.value = midiToFreq(midi);
+  gain.gain.setValueAtTime(0.25, when);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.85);
+  osc.start(when);
+  osc.stop(when + dur);
+}
+
+function scheduleLoop() {
+  const dur = stepDuration();
+  while (nextTime < audioCtx.currentTime + 0.15) {
+    const step = curStep;
+    // Visual: schedule DOM update near step time
+    const delay = (nextTime - audioCtx.currentTime) * 1000;
+    setTimeout(() => highlightCol(step), Math.max(0, delay));
+
+    for (let r = 0; r < NUM_NOTES; r++) {
+      if (grid_data[r][step]) {
+        scheduleNote(rowToMidi(r), nextTime, dur * 0.9);
+      }
+    }
+    nextTime += dur;
+    curStep = (curStep + 1) % numSteps;
+  }
+}
+
+function highlightCol(col) {
+  // clear previous
+  if (lastHighCol >= 0) {
+    for (let r = 0; r < NUM_NOTES; r++) {
+      cellEl(r, lastHighCol)?.classList.remove('playing');
+    }
+  }
+  for (let r = 0; r < NUM_NOTES; r++) {
+    cellEl(r, col)?.classList.add('playing');
+  }
+  lastHighCol = col;
+}
+
+function clearPlayHighlight() {
+  if (lastHighCol >= 0) {
+    for (let r = 0; r < NUM_NOTES; r++) {
+      cellEl(r, lastHighCol)?.classList.remove('playing');
+    }
+    lastHighCol = -1;
+  }
+}
+
+document.getElementById('btn-play').addEventListener('click', () => {
+  if (playing) return;
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  playing  = true;
+  curStep  = 0;
+  nextTime = audioCtx.currentTime + 0.05;
+  scheduleLoop();
+  playTimer = setInterval(scheduleLoop, 50);
+});
+
+document.getElementById('btn-stop').addEventListener('click', () => {
+  playing = false;
+  clearInterval(playTimer);
+  clearPlayHighlight();
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  playing = false;
+  clearInterval(playTimer);
+  clearPlayHighlight();
+  initData();
+  buildGrid();
+});
+
+// ── MIDI Export ────────────────────────────────────────
+function varLen(v) {
+  const b = [v & 0x7F]; v >>= 7;
+  while (v) { b.push((v & 0x7F) | 0x80); v >>= 7; }
+  return b.reverse();
+}
+const u32 = v => [(v>>24)&0xFF,(v>>16)&0xFF,(v>>8)&0xFF,v&0xFF];
+const u16 = v => [(v>>8)&0xFF,v&0xFF];
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const bpm        = +document.getElementById('bpm').value;
+  const instrument = +document.getElementById('instrument').value;
+  const TPB        = 480;         // ticks per beat (quarter note)
+  const TPS        = TPB / 4;    // ticks per 16th step
+
+  // Collect events
+  const evs = [];
+  for (let r = 0; r < NUM_NOTES; r++) {
+    const midi = rowToMidi(r);
+    let start = -1;
+    for (let c = 0; c <= numSteps; c++) {
+      const on = c < numSteps && grid_data[r][c];
+      if (on  && start < 0) start = c;
+      if (!on && start >= 0) {
+        evs.push({ tick: start * TPS, type: 0x90, note: midi, vel: 100 });
+        evs.push({ tick: c     * TPS, type: 0x80, note: midi, vel: 0   });
+        start = -1;
+      }
+    }
+  }
+
+  if (!evs.length) { alert('ノートが入力されていません'); return; }
+
+  evs.sort((a, b) => a.tick - b.tick || (a.type === 0x80 ? -1 : 1));
+
+  const track = [];
+  const tempo = Math.round(60_000_000 / bpm);
+  track.push(0x00, 0xFF, 0x51, 0x03, (tempo>>16)&0xFF, (tempo>>8)&0xFF, tempo&0xFF);
+  track.push(0x00, 0xC0, instrument);
+
+  let cur = 0;
+  for (const ev of evs) {
+    track.push(...varLen(ev.tick - cur), ev.type, ev.note, ev.vel);
+    cur = ev.tick;
+  }
+  track.push(0x00, 0xFF, 0x2F, 0x00);
+
+  const bytes = new Uint8Array([
+    0x4D,0x54,0x68,0x64, ...u32(6), ...u16(0), ...u16(1), ...u16(TPB),
+    0x4D,0x54,0x72,0x6B, ...u32(track.length), ...track,
+  ]);
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: 'audio/midi' }));
+  a.download = 'composition.mid';
+  a.click();
+});
+
+// ── Init ───────────────────────────────────────────────
+buildUI();
+</script>
+</body>
+</html>
