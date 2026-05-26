@@ -54,10 +54,21 @@ button {
 button:hover { opacity: 0.8; }
 button:active { opacity: 0.6; }
 
-#btn-play  { background: #4caf50; color: #fff; }
-#btn-stop  { background: #f44336; color: #fff; }
-#btn-clear { background: #607d8b; color: #fff; }
-#btn-export{ background: #e94560; color: #fff; }
+#btn-play   { background: #4caf50; color: #fff; }
+#btn-stop   { background: #f44336; color: #fff; }
+#btn-clear  { background: #607d8b; color: #fff; }
+#btn-export { background: #e94560; color: #fff; }
+
+/* ── Toolbar advanced toggle ── */
+#toolbar-advanced { display: contents; }
+#toolbar-advanced.hidden > * { display: none; }
+#btn-advanced {
+  padding: 5px 10px; background: transparent;
+  border: 1px solid #2a3d60; border-radius: 4px;
+  color: #556; font-size: 11px; cursor: pointer; font-weight: normal;
+  white-space: nowrap;
+}
+#btn-advanced:hover { color: #99b; border-color: #446; opacity: 1; }
 
 /* ── Beat / Bar header ── */
 #roll-wrap {
@@ -159,58 +170,123 @@ button:active { opacity: 0.6; }
 .cell.active  { background: #4caf50 !important; }
 .cell.playing { background: #ffeb3b !important; }
 .cell:hover   { filter: brightness(1.4); }
+
+/* ── Home Screen ── */
+#home-screen {
+  position: fixed; inset: 0;
+  background: #1a1a2e;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 100; gap: 24px;
+}
+#home-screen h1 { font-size: 22px; color: #e94560; letter-spacing: 0.04em; }
+#btn-generate {
+  padding: 22px 52px; background: #e94560; color: #fff;
+  border: none; border-radius: 14px; font-size: 24px; font-weight: bold;
+  cursor: pointer; box-shadow: 0 4px 32px rgba(233,69,96,0.45);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+#btn-generate:hover  { transform: scale(1.04); box-shadow: 0 6px 40px rgba(233,69,96,0.6); opacity: 1; }
+#btn-generate:active { transform: scale(0.97); opacity: 1; }
+#home-tagline { font-size: 13px; color: #445; }
+
+/* ── AI Card ── */
+#ai-card {
+  display: none; flex-shrink: 0;
+  background: #13203a; border-bottom: 1px solid #1e3560;
+  padding: 10px 16px; gap: 10px;
+  flex-direction: column;
+}
+.ai-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+#ai-mood   { font-size: 16px; font-weight: bold; color: #e94560; }
+#ai-chords { font-size: 14px; color: #7ab3ff; letter-spacing: 0.1em; }
+#ai-bpm    { font-size: 12px; color: #556; }
+#direction-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-dir {
+  padding: 5px 14px; background: transparent;
+  border: 1px solid #243558; border-radius: 20px;
+  color: #778; font-size: 12px; cursor: pointer; font-weight: normal;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-dir:hover  { border-color: #e94560; color: #fff; opacity: 1; }
+.btn-dir:active { opacity: 0.7; }
 </style>
 </head>
 <body>
 
+<!-- Home Screen Overlay -->
+<div id="home-screen">
+  <h1>🎵 MIDI Maker</h1>
+  <button id="btn-generate">何も思いつかない</button>
+  <p id="home-tagline">AIが最初の一歩を作ります</p>
+</div>
+
 <div id="toolbar">
   <h1>🎵 MIDI Maker</h1>
 
-  <div class="ctrl">
-    <label>BPM</label>
-    <input type="number" id="bpm" value="120" min="30" max="300">
+  <div id="toolbar-advanced" class="hidden">
+    <div class="ctrl">
+      <label>BPM</label>
+      <input type="number" id="bpm" value="120" min="30" max="300">
+    </div>
+
+    <div class="ctrl">
+      <label>音符の長さ</label>
+      <select id="note-len">
+        <option value="1">16分音符</option>
+        <option value="2">8分音符</option>
+        <option value="4" selected>4分音符</option>
+        <option value="8">2分音符</option>
+        <option value="16">全音符</option>
+      </select>
+    </div>
+
+    <div class="ctrl">
+      <label>小節数</label>
+      <select id="num-bars">
+        <option value="2">2小節</option>
+        <option value="4" selected>4小節</option>
+        <option value="8">8小節</option>
+        <option value="16">16小節</option>
+      </select>
+    </div>
+
+    <div class="ctrl">
+      <label>楽器</label>
+      <select id="instrument">
+        <option value="0">アコースティックピアノ</option>
+        <option value="4">エレクトリックピアノ</option>
+        <option value="24">アコースティックギター</option>
+        <option value="25">スチールギター</option>
+        <option value="40">バイオリン</option>
+        <option value="56">トランペット</option>
+        <option value="68">オーボエ</option>
+        <option value="73">フルート</option>
+        <option value="19">教会オルガン</option>
+      </select>
+    </div>
   </div>
 
-  <div class="ctrl">
-    <label>音符の長さ</label>
-    <select id="note-len">
-      <option value="1">16分音符</option>
-      <option value="2">8分音符</option>
-      <option value="4" selected>4分音符</option>
-      <option value="8">2分音符</option>
-      <option value="16">全音符</option>
-    </select>
-  </div>
-
-  <div class="ctrl">
-    <label>小節数</label>
-    <select id="num-bars">
-      <option value="2">2小節</option>
-      <option value="4" selected>4小節</option>
-      <option value="8">8小節</option>
-      <option value="16">16小節</option>
-    </select>
-  </div>
-
-  <div class="ctrl">
-    <label>楽器</label>
-    <select id="instrument">
-      <option value="0">アコースティックピアノ</option>
-      <option value="4">エレクトリックピアノ</option>
-      <option value="24">アコースティックギター</option>
-      <option value="25">スチールギター</option>
-      <option value="40">バイオリン</option>
-      <option value="56">トランペット</option>
-      <option value="68">オーボエ</option>
-      <option value="73">フルート</option>
-      <option value="19">教会オルガン</option>
-    </select>
-  </div>
-
+  <button id="btn-advanced">詳細 ▼</button>
   <button id="btn-play">▶ 再生</button>
   <button id="btn-stop">■ 停止</button>
   <button id="btn-clear">🗑 クリア</button>
   <button id="btn-export">💾 MIDIで保存</button>
+</div>
+
+<!-- AI Card -->
+<div id="ai-card">
+  <div class="ai-row">
+    <span id="ai-mood"></span>
+    <span id="ai-chords"></span>
+    <span id="ai-bpm"></span>
+  </div>
+  <div id="direction-btns">
+    <button class="btn-dir" data-dir="bright">もっと明るく</button>
+    <button class="btn-dir" data-dir="emo">もっとエモく</button>
+    <button class="btn-dir" data-dir="quiet">もっと静か</button>
+    <button class="btn-dir" data-dir="other">別案</button>
+  </div>
 </div>
 
 <div id="roll-wrap">
@@ -547,6 +623,120 @@ document.getElementById('btn-export').addEventListener('click', () => {
   a.href = URL.createObjectURL(new Blob([bytes], { type: 'audio/midi' }));
   a.download = 'composition.mid';
   a.click();
+});
+
+// ── AI Generation ──────────────────────────────────────
+const CHORD_NOTES = {
+  'C':  [60,64,67], 'Cm': [60,63,67],
+  'D':  [62,66,69], 'Dm': [62,65,69],
+  'E':  [64,68,71], 'Em': [64,67,71],
+  'F':  [65,69,72], 'Fm': [65,68,72],
+  'G':  [67,71,74], 'Gm': [67,70,74],
+  'A':  [57,61,64], 'Am': [57,60,64],
+  'Bb': [58,62,65],
+  'B':  [59,63,66], 'Bm': [59,62,66],
+  'F#m':[66,69,73],
+};
+
+const PRESETS = [
+  { chords:['C','Am','F','G'],   bpm:120, mood:'夜のドライブ',   brightness:0,  energy:1  },
+  { chords:['G','Em','C','D'],   bpm:112, mood:'秋の午後',       brightness:0,  energy:0  },
+  { chords:['Am','G','F','E'],   bpm: 98, mood:'どこか遠い場所', brightness:-1, energy:0  },
+  { chords:['C','G','Am','F'],   bpm:130, mood:'晴れた朝',       brightness:2,  energy:2  },
+  { chords:['G','D','Em','C'],   bpm:124, mood:'夏の海',         brightness:2,  energy:2  },
+  { chords:['C','F','G','Am'],   bpm:118, mood:'はじまりの日',   brightness:1,  energy:1  },
+  { chords:['D','G','A','Bm'],   bpm:132, mood:'旅のはじまり',   brightness:1,  energy:2  },
+  { chords:['Am','F','C','G'],   bpm: 88, mood:'雨の窓',         brightness:-2, energy:-1 },
+  { chords:['Em','Am','D','G'],  bpm: 92, mood:'夕暮れの帰り道', brightness:-1, energy:-1 },
+  { chords:['Dm','Am','Bb','F'], bpm: 76, mood:'別れの朝',       brightness:-2, energy:-2 },
+  { chords:['Am','C','G','F'],   bpm: 95, mood:'ひとりの夜',     brightness:-1, energy:-1 },
+  { chords:['C','Am','F','G'],   bpm: 72, mood:'深夜のカフェ',   brightness:0,  energy:-2 },
+  { chords:['Am','Dm','G','C'],  bpm: 68, mood:'眠れない夜',     brightness:-1, energy:-2 },
+  { chords:['Em','C','G','D'],   bpm: 80, mood:'静かな森',       brightness:1,  energy:-2 },
+  { chords:['G','D','Em','C'],   bpm:138, mood:'スタートライン', brightness:2,  energy:3  },
+  { chords:['D','A','Bm','G'],   bpm:134, mood:'新しい挑戦',     brightness:1,  energy:2  },
+  { chords:['C','G','F','Am'],   bpm:105, mood:'日曜の午後',     brightness:1,  energy:-1 },
+  { chords:['F','C','Dm','Bb'],  bpm: 75, mood:'夜明け前',       brightness:-1, energy:-2 },
+  { chords:['G','C','Em','D'],   bpm:116, mood:'懐かしい道',     brightness:0,  energy:0  },
+  { chords:['Am','F#m','C','G'], bpm:108, mood:'夢のかけら',     brightness:-1, energy:1  },
+];
+
+let currentIdea = null;
+
+function generateIdea(direction) {
+  let pool = PRESETS;
+  if (direction === 'bright') pool = PRESETS.filter(p => p.brightness > 0);
+  if (direction === 'emo')    pool = PRESETS.filter(p => p.energy < 0);
+  if (direction === 'quiet')  pool = PRESETS.filter(p => p.bpm < 100);
+  if (direction === 'other')  pool = PRESETS.filter(p => p !== currentIdea);
+  if (pool.length === 0) pool = PRESETS;
+  const candidates = pool.filter(p => p !== currentIdea);
+  const source = candidates.length > 0 ? candidates : pool;
+  currentIdea = source[Math.floor(Math.random() * source.length)];
+}
+
+function applyIdea() {
+  const idea = currentIdea;
+  if (playing) { playing = false; clearInterval(playTimer); clearPlayHighlight(); }
+  document.getElementById('bpm').value = idea.bpm;
+  if (numBars !== 4) {
+    document.getElementById('num-bars').value = '4';
+    numBars  = 4;
+    numSteps = 64;
+    buildHeader();
+  }
+  fillGridFromChords(idea.chords);
+  renderAICard(idea);
+}
+
+function fillGridFromChords(chords) {
+  initData();
+  const barsPerChord = Math.floor(numBars / chords.length);
+  chords.forEach((chord, i) => {
+    const notes = CHORD_NOTES[chord];
+    if (!notes) return;
+    const startStep = i * barsPerChord * STEPS_PER_BAR;
+    const durSteps  = barsPerChord * STEPS_PER_BAR - 1;
+    notes.forEach(midi => {
+      if (midi < MIDI_LO || midi >= MIDI_HI) return;
+      const r = (MIDI_HI - 1) - midi;
+      for (let s = 0; s < durSteps; s++) {
+        const c = startStep + s;
+        if (c < numSteps) grid_data[r][c] = true;
+      }
+    });
+  });
+  buildGrid();
+  scrollToMiddleC();
+}
+
+function renderAICard(idea) {
+  document.getElementById('ai-mood').textContent   = idea.mood;
+  document.getElementById('ai-chords').textContent = idea.chords.join(' → ');
+  document.getElementById('ai-bpm').textContent    = 'BPM ' + idea.bpm;
+  document.getElementById('ai-card').style.display = 'flex';
+}
+
+// ── Home Screen ────────────────────────────────────────
+document.getElementById('btn-generate').addEventListener('click', () => {
+  generateIdea();
+  applyIdea();
+  document.getElementById('home-screen').style.display = 'none';
+});
+
+// ── Direction Buttons ──────────────────────────────────
+document.querySelectorAll('.btn-dir').forEach(btn => {
+  btn.addEventListener('click', () => {
+    generateIdea(btn.dataset.dir);
+    applyIdea();
+  });
+});
+
+// ── Toolbar Advanced Toggle ────────────────────────────
+document.getElementById('btn-advanced').addEventListener('click', function() {
+  const adv = document.getElementById('toolbar-advanced');
+  const isHidden = adv.classList.toggle('hidden');
+  this.textContent = isHidden ? '詳細 ▼' : '詳細 ▲';
 });
 
 // ── Init ───────────────────────────────────────────────
