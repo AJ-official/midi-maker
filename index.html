@@ -261,7 +261,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 <!-- Home Screen Overlay -->
 <div id="home-screen">
   <h1>🎵 MIDI Maker</h1>
-  <button id="btn-generate">何も思いつかない</button>
   <p id="home-tagline">AIが最初の一歩を作ります</p>
 </div>
 
@@ -1009,13 +1008,6 @@ function renderAICard(idea) {
   document.getElementById('ai-card').style.display = 'flex';
 }
 
-// ── Home Screen ────────────────────────────────────────
-document.getElementById('btn-generate').addEventListener('click', () => {
-  generateIdea();
-  applyIdea();
-  document.getElementById('home-screen').style.display = 'none';
-});
-
 // ── Direction Buttons ──────────────────────────────────
 document.querySelectorAll('.btn-dir').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1033,6 +1025,9 @@ document.getElementById('btn-advanced').addEventListener('click', function() {
 
 // ── Init ───────────────────────────────────────────────
 buildUI();
+generateIdea();
+applyIdea();
+document.getElementById('home-screen').style.display = 'none';
 </script>
 </body>
 </html>
