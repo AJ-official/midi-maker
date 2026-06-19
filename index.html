@@ -72,6 +72,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 #btn-advanced:hover { color: #99b; border-color: #446; opacity: 1; }
 
+/* ── Volume slider ── */
+#volume { width: 70px; accent-color: #e94560; cursor: pointer; vertical-align: middle; }
+#volume-pct { font-size: 11px; color: #aaa; width: 34px; text-align: right; }
+
 /* ── SF loading status ── */
 #sf-status {
   font-size: 11px; color: #556; white-space: nowrap;
@@ -303,6 +307,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   <button id="btn-advanced">詳細 ▼</button>
   <button id="btn-play">▶ 再生</button>
   <button id="btn-stop">■ 停止</button>
+  <div class="ctrl">
+    <label>🔊</label>
+    <input type="range" id="volume" min="0" max="3" step="0.05" value="2">
+    <span id="volume-pct">100%</span>
+  </div>
   <button id="btn-clear">🗑 クリア</button>
   <button id="btn-export">💾 MIDIで保存</button>
 </div>
@@ -468,10 +477,21 @@ function initData() {
 initData();
 
 // ── Soundfont State ────────────────────────────────────
-let audioCtx       = null;
-let sfInstrument   = null;
-let sfLoadedProg   = -1;
-let sfLoading      = false;
+let audioCtx        = null;
+let masterGainNode  = null;
+let masterVolume    = 2.0;
+let sfInstrument    = null;
+let sfLoadedProg    = -1;
+let sfLoading       = false;
+
+function ensureMasterGain() {
+  if (!masterGainNode) {
+    masterGainNode = audioCtx.createGain();
+    masterGainNode.gain.value = masterVolume;
+    masterGainNode.connect(audioCtx.destination);
+  }
+  return masterGainNode;
+}
 
 function setSfStatus(state, text) {
   const el = document.getElementById('sf-status');
@@ -486,7 +506,7 @@ async function loadSfInstrument(program) {
   setSfStatus('loading', '音色を読み込み中...');
   try {
     const name = GM_SF_NAMES[program] || 'acoustic_grand_piano';
-    sfInstrument = await Soundfont.instrument(audioCtx, name, { soundfont: 'MusyngKite' });
+    sfInstrument = await Soundfont.instrument(audioCtx, name, { soundfont: 'MusyngKite', destination: ensureMasterGain() });
     sfLoadedProg = program;
     const dispName = GM_SF_NAMES[program] || 'piano';
     setSfStatus('ready', '♪ ' + dispName.replace(/_/g, ' '));
@@ -663,6 +683,13 @@ document.getElementById('num-bars').addEventListener('change', function() {
   buildGrid();
 });
 
+// ── Volume slider ─────────────────────────────────────
+document.getElementById('volume').addEventListener('input', function() {
+  masterVolume = parseFloat(this.value);
+  if (masterGainNode) masterGainNode.gain.value = masterVolume;
+  document.getElementById('volume-pct').textContent = Math.round(masterVolume * 50) + '%';
+});
+
 // ── Instrument change → reload soundfont ───────────────
 document.getElementById('instrument').addEventListener('change', function() {
   sfInstrument = null;
@@ -688,7 +715,7 @@ function midiToFreq(m) { return 440 * 2 ** ((m - 69) / 12); }
 
 function scheduleNote(midi, when, dur) {
   if (sfInstrument) {
-    sfInstrument.play(midiNoteName(midi), when, { duration: dur * 0.85, gain: 0.8 });
+    sfInstrument.play(midiNoteName(midi), when, { duration: dur * 0.85, gain: 1.0 });
   } else {
     // Fallback oscillator
     const osc  = audioCtx.createOscillator();
