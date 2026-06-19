@@ -713,7 +713,13 @@ function scheduleLoop() {
 
     for (let r = 0; r < NUM_NOTES; r++) {
       if (grid_data[r][step]) {
-        scheduleNote(rowToMidi(r), nextTime, dur * 0.9);
+        // Only trigger at the start of a run (previous step off, or first step)
+        const isStart = step === 0 || !grid_data[r][step - 1];
+        if (isStart) {
+          let len = 1;
+          while (step + len < numSteps && grid_data[r][step + len]) len++;
+          scheduleNote(rowToMidi(r), nextTime, dur * len * 0.9);
+        }
       }
     }
     nextTime += dur;
