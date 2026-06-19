@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MIDI Maker</title>
+<script src="https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -53,6 +54,7 @@ button {
 }
 button:hover { opacity: 0.8; }
 button:active { opacity: 0.6; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 #btn-play   { background: #4caf50; color: #fff; }
 #btn-stop   { background: #f44336; color: #fff; }
@@ -69,6 +71,15 @@ button:active { opacity: 0.6; }
   white-space: nowrap;
 }
 #btn-advanced:hover { color: #99b; border-color: #446; opacity: 1; }
+
+/* ── SF loading status ── */
+#sf-status {
+  font-size: 11px; color: #556; white-space: nowrap;
+}
+#sf-status.loading { color: #e9a020; }
+#sf-status.ready   { color: #4caf50; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+#sf-status.loading { animation: pulse 1s infinite; }
 
 /* ── Beat / Bar header ── */
 #roll-wrap {
@@ -210,6 +221,35 @@ button:active { opacity: 0.6; }
 }
 .btn-dir:hover  { border-color: #e94560; color: #fff; opacity: 1; }
 .btn-dir:active { opacity: 0.7; }
+
+/* ── Meta Modal ── */
+#meta-modal {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65); z-index: 200;
+  align-items: center; justify-content: center;
+}
+#meta-modal.open { display: flex; }
+#meta-box {
+  background: #16213e; border: 1px solid #e94560;
+  border-radius: 12px; padding: 24px;
+  width: 400px; max-width: 92vw;
+  display: flex; flex-direction: column; gap: 14px;
+}
+#meta-box h2 { color: #e94560; font-size: 16px; }
+.meta-field { display: flex; flex-direction: column; gap: 4px; }
+.meta-field label { font-size: 12px; color: #aaa; }
+.meta-field input {
+  padding: 7px 10px; background: #0f3460;
+  border: 1px solid #555; color: white;
+  border-radius: 4px; font-size: 14px;
+  transition: border-color 0.15s;
+}
+.meta-field input:focus { outline: none; border-color: #e94560; }
+.meta-field input::placeholder { color: #445; }
+.meta-hint { font-size: 11px; color: #445; }
+.meta-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+#btn-meta-cancel { background: #2a3a55; color: #aaa; }
+#btn-meta-save   { background: #e94560; color: #fff; }
 </style>
 </head>
 <body>
@@ -253,18 +293,11 @@ button:active { opacity: 0.6; }
 
     <div class="ctrl">
       <label>楽器</label>
-      <select id="instrument">
-        <option value="0">アコースティックピアノ</option>
-        <option value="4">エレクトリックピアノ</option>
-        <option value="24">アコースティックギター</option>
-        <option value="25">スチールギター</option>
-        <option value="40">バイオリン</option>
-        <option value="56">トランペット</option>
-        <option value="68">オーボエ</option>
-        <option value="73">フルート</option>
-        <option value="19">教会オルガン</option>
-      </select>
+      <!-- options built by JS -->
+      <select id="instrument"></select>
     </div>
+
+    <span id="sf-status"></span>
   </div>
 
   <button id="btn-advanced">詳細 ▼</button>
@@ -305,7 +338,111 @@ button:active { opacity: 0.6; }
   </div>
 </div>
 
+<!-- Meta Info Modal -->
+<div id="meta-modal">
+  <div id="meta-box">
+    <h2>💾 MIDIとして保存</h2>
+    <p class="meta-hint">メタ情報は任意です。空欄のままでも保存できます。</p>
+    <div class="meta-field">
+      <label>曲名 (Track Name)</label>
+      <input type="text" id="meta-title" placeholder="例: My Song" maxlength="128">
+    </div>
+    <div class="meta-field">
+      <label>テキスト / 作者名 (Text)</label>
+      <input type="text" id="meta-text" placeholder="例: Composed by ..." maxlength="128">
+    </div>
+    <div class="meta-field">
+      <label>著作権 (Copyright)</label>
+      <input type="text" id="meta-copyright" placeholder="例: © 2026 Your Name" maxlength="128">
+    </div>
+    <div class="meta-btns">
+      <button id="btn-meta-cancel">キャンセル</button>
+      <button id="btn-meta-save">保存する</button>
+    </div>
+  </div>
+</div>
+
 <script>
+// ── GM Instrument Data ──────────────────────────────────
+const GM_GROUPS = [
+  { name: 'ピアノ', instruments: [
+    'Acoustic Grand Piano','Bright Acoustic Piano','Electric Grand Piano','Honky-tonk Piano',
+    'Electric Piano 1','Electric Piano 2','Harpsichord','Clavinet'] },
+  { name: '鍵盤打楽器', instruments: [
+    'Celesta','Glockenspiel','Music Box','Vibraphone',
+    'Marimba','Xylophone','Tubular Bells','Dulcimer'] },
+  { name: 'オルガン', instruments: [
+    'Drawbar Organ','Percussive Organ','Rock Organ','Church Organ',
+    'Reed Organ','Accordion','Harmonica','Tango Accordion'] },
+  { name: 'ギター', instruments: [
+    'Nylon Guitar','Steel Guitar','Jazz Guitar','Clean Guitar',
+    'Muted Guitar','Overdriven Guitar','Distortion Guitar','Guitar Harmonics'] },
+  { name: 'ベース', instruments: [
+    'Acoustic Bass','Finger Bass','Pick Bass','Fretless Bass',
+    'Slap Bass 1','Slap Bass 2','Synth Bass 1','Synth Bass 2'] },
+  { name: 'ストリングス', instruments: [
+    'Violin','Viola','Cello','Contrabass',
+    'Tremolo Strings','Pizzicato Strings','Orchestral Harp','Timpani'] },
+  { name: 'アンサンブル', instruments: [
+    'String Ensemble 1','String Ensemble 2','Synth Strings 1','Synth Strings 2',
+    'Choir Aahs','Voice Oohs','Synth Voice','Orchestra Hit'] },
+  { name: 'ブラス', instruments: [
+    'Trumpet','Trombone','Tuba','Muted Trumpet',
+    'French Horn','Brass Section','Synth Brass 1','Synth Brass 2'] },
+  { name: 'リード', instruments: [
+    'Soprano Sax','Alto Sax','Tenor Sax','Baritone Sax',
+    'Oboe','English Horn','Bassoon','Clarinet'] },
+  { name: '管楽器', instruments: [
+    'Piccolo','Flute','Recorder','Pan Flute',
+    'Blown Bottle','Shakuhachi','Whistle','Ocarina'] },
+  { name: 'シンセリード', instruments: [
+    'Lead: Square','Lead: Sawtooth','Lead: Calliope','Lead: Chiff',
+    'Lead: Charang','Lead: Voice','Lead: Fifths','Lead: Bass+Lead'] },
+  { name: 'シンセパッド', instruments: [
+    'Pad: New Age','Pad: Warm','Pad: Polysynth','Pad: Choir',
+    'Pad: Bowed','Pad: Metallic','Pad: Halo','Pad: Sweep'] },
+  { name: 'シンセFX', instruments: [
+    'FX: Rain','FX: Soundtrack','FX: Crystal','FX: Atmosphere',
+    'FX: Brightness','FX: Goblins','FX: Echoes','FX: Sci-fi'] },
+  { name: '民族楽器', instruments: [
+    'Sitar','Banjo','Shamisen','Koto',
+    'Kalimba','Bagpipe','Fiddle','Shanai'] },
+  { name: 'パーカッション', instruments: [
+    'Tinkle Bell','Agogo','Steel Drums','Woodblock',
+    'Taiko Drum','Melodic Tom','Synth Drum','Reverse Cymbal'] },
+  { name: '効果音', instruments: [
+    'Guitar Fret Noise','Breath Noise','Seashore','Bird Tweet',
+    'Telephone Ring','Helicopter','Applause','Gunshot'] },
+];
+
+// soundfont-player instrument names (index = GM program number)
+const GM_SF_NAMES = [
+  'acoustic_grand_piano','bright_acoustic_piano','electric_grand_piano','honkytonk_piano',
+  'electric_piano_1','electric_piano_2','harpsichord','clavinet',
+  'celesta','glockenspiel','music_box','vibraphone','marimba','xylophone','tubular_bells','dulcimer',
+  'drawbar_organ','percussive_organ','rock_organ','church_organ','reed_organ','accordion','harmonica','tango_accordion',
+  'acoustic_guitar_nylon','acoustic_guitar_steel','electric_guitar_jazz','electric_guitar_clean',
+  'electric_guitar_muted','overdriven_guitar','distortion_guitar','guitar_harmonics',
+  'acoustic_bass','electric_bass_finger','electric_bass_pick','fretless_bass',
+  'slap_bass_1','slap_bass_2','synth_bass_1','synth_bass_2',
+  'violin','viola','cello','contrabass','tremolo_strings','pizzicato_strings','orchestral_harp','timpani',
+  'string_ensemble_1','string_ensemble_2','synthstrings_1','synthstrings_2',
+  'choir_aahs','voice_oohs','synth_voice','orchestra_hit',
+  'trumpet','trombone','tuba','muted_trumpet','french_horn','brass_section','synthbrass_1','synthbrass_2',
+  'soprano_sax','alto_sax','tenor_sax','baritone_sax','oboe','english_horn','bassoon','clarinet',
+  'piccolo','flute','recorder','pan_flute','blown_bottle','shakuhachi','whistle','ocarina',
+  'lead_1_square','lead_2_sawtooth','lead_3_calliope','lead_4_chiff',
+  'lead_5_charang','lead_6_voice','lead_7_fifths','lead_8_bass_lead',
+  'pad_1_new_age','pad_2_warm','pad_3_polysynth','pad_4_choir',
+  'pad_5_bowed','pad_6_metallic','pad_7_halo','pad_8_sweep',
+  'fx_1_rain','fx_2_soundtrack','fx_3_crystal','fx_4_atmosphere',
+  'fx_5_brightness','fx_6_goblins','fx_7_echoes','fx_8_sci_fi',
+  'sitar','banjo','shamisen','koto','kalimba','bagpipe','fiddle','shanai',
+  'tinkle_bell','agogo','steel_drums','woodblock','taiko_drum','melodic_tom','synth_drum','reverse_cymbal',
+  'guitar_fret_noise','breath_noise','seashore','bird_tweet',
+  'telephone_ring','helicopter','applause','gunshot',
+];
+
 // ── Constants ──────────────────────────────────────────
 const MIDI_LO   = 36;   // C2
 const MIDI_HI   = 84;   // C6 (exclusive)
@@ -315,10 +452,10 @@ const STEPS_PER_BAR = 16; // 16th notes
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const IS_BLACK   = new Set([1,3,6,8,10]);
 
-const midiToName = m => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
-const isBlack    = m => IS_BLACK.has(m % 12);
-// row 0 = topmost = MIDI_HI - 1
-const rowToMidi  = r => (MIDI_HI - 1) - r;
+const midiToName  = m => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
+const isBlack     = m => IS_BLACK.has(m % 12);
+const rowToMidi   = r => (MIDI_HI - 1) - r;
+const midiNoteName = m => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
 
 // ── State ──────────────────────────────────────────────
 let numBars  = 4;
@@ -330,8 +467,59 @@ function initData() {
 }
 initData();
 
+// ── Soundfont State ────────────────────────────────────
+let audioCtx       = null;
+let sfInstrument   = null;
+let sfLoadedProg   = -1;
+let sfLoading      = false;
+
+function setSfStatus(state, text) {
+  const el = document.getElementById('sf-status');
+  el.className = state;
+  el.textContent = text;
+}
+
+async function loadSfInstrument(program) {
+  if (sfLoadedProg === program && sfInstrument) return;
+  if (sfLoading) return;
+  sfLoading = true;
+  setSfStatus('loading', '音色を読み込み中...');
+  try {
+    const name = GM_SF_NAMES[program] || 'acoustic_grand_piano';
+    sfInstrument = await Soundfont.instrument(audioCtx, name, { soundfont: 'MusyngKite' });
+    sfLoadedProg = program;
+    const dispName = GM_SF_NAMES[program] || 'piano';
+    setSfStatus('ready', '♪ ' + dispName.replace(/_/g, ' '));
+  } catch(e) {
+    console.warn('Soundfont load failed:', e);
+    sfInstrument = null;
+    setSfStatus('', '');
+  }
+  sfLoading = false;
+}
+
+// ── Build Instrument Select ────────────────────────────
+function buildInstrumentSelect() {
+  const sel = document.getElementById('instrument');
+  sel.innerHTML = '';
+  let prog = 0;
+  for (const group of GM_GROUPS) {
+    const og = document.createElement('optgroup');
+    og.label = group.name;
+    for (const name of group.instruments) {
+      const opt = document.createElement('option');
+      opt.value = prog;
+      opt.textContent = prog + ': ' + name;
+      og.appendChild(opt);
+      prog++;
+    }
+    sel.appendChild(og);
+  }
+}
+
 // ── Render ─────────────────────────────────────────────
 function buildUI() {
+  buildInstrumentSelect();
   buildKeys();
   buildHeader();
   buildGrid();
@@ -402,7 +590,6 @@ function buildGrid() {
 }
 
 function scrollToMiddleC() {
-  // C4 = MIDI 60, row = (MIDI_HI-1) - 60 = 83 - 60 = 23
   const c4row = (MIDI_HI - 1) - 60;
   const scrollTarget = c4row * 20 - 100;
   document.getElementById('grid-scroll').scrollTop = Math.max(0, scrollTarget);
@@ -476,38 +663,51 @@ document.getElementById('num-bars').addEventListener('change', function() {
   buildGrid();
 });
 
+// ── Instrument change → reload soundfont ───────────────
+document.getElementById('instrument').addEventListener('change', function() {
+  sfInstrument = null;
+  sfLoadedProg = -1;
+  setSfStatus('', '');
+  if (audioCtx) {
+    loadSfInstrument(+this.value);
+  }
+});
+
 // ── Playback ───────────────────────────────────────────
-let audioCtx   = null;
 let playing    = false;
 let playTimer  = null;
 let curStep    = 0;
 let nextTime   = 0;
-let lastHighRow = -1, lastHighCol = -1;
+let lastHighCol = -1;
 
 function stepDuration() {
-  return 60 / (+document.getElementById('bpm').value) / 4; // 16th note sec
+  return 60 / (+document.getElementById('bpm').value) / 4;
 }
 
 function midiToFreq(m) { return 440 * 2 ** ((m - 69) / 12); }
 
 function scheduleNote(midi, when, dur) {
-  const osc  = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.type = 'triangle';
-  osc.frequency.value = midiToFreq(midi);
-  gain.gain.setValueAtTime(0.25, when);
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.85);
-  osc.start(when);
-  osc.stop(when + dur);
+  if (sfInstrument) {
+    sfInstrument.play(midiNoteName(midi), when, { duration: dur * 0.85, gain: 0.8 });
+  } else {
+    // Fallback oscillator
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'triangle';
+    osc.frequency.value = midiToFreq(midi);
+    gain.gain.setValueAtTime(0.25, when);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.85);
+    osc.start(when);
+    osc.stop(when + dur);
+  }
 }
 
 function scheduleLoop() {
   const dur = stepDuration();
   while (nextTime < audioCtx.currentTime + 0.15) {
     const step = curStep;
-    // Visual: schedule DOM update near step time
     const delay = (nextTime - audioCtx.currentTime) * 1000;
     setTimeout(() => highlightCol(step), Math.max(0, delay));
 
@@ -522,7 +722,6 @@ function scheduleLoop() {
 }
 
 function highlightCol(col) {
-  // clear previous
   if (lastHighCol >= 0) {
     for (let r = 0; r < NUM_NOTES; r++) {
       cellEl(r, lastHighCol)?.classList.remove('playing');
@@ -543,9 +742,21 @@ function clearPlayHighlight() {
   }
 }
 
-document.getElementById('btn-play').addEventListener('click', () => {
+document.getElementById('btn-play').addEventListener('click', async () => {
   if (playing) return;
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+  const program = +document.getElementById('instrument').value;
+  if (!sfInstrument && !sfLoading) {
+    const btn = document.getElementById('btn-play');
+    btn.textContent = '読み込み中...';
+    btn.disabled = true;
+    await loadSfInstrument(program);
+    btn.textContent = '▶ 再生';
+    btn.disabled = false;
+  }
+
   playing  = true;
   curStep  = 0;
   nextTime = audioCtx.currentTime + 0.05;
@@ -553,16 +764,17 @@ document.getElementById('btn-play').addEventListener('click', () => {
   playTimer = setInterval(scheduleLoop, 50);
 });
 
-document.getElementById('btn-stop').addEventListener('click', () => {
+function stopPlayback() {
   playing = false;
   clearInterval(playTimer);
   clearPlayHighlight();
-});
+  if (sfInstrument) sfInstrument.stop();
+}
+
+document.getElementById('btn-stop').addEventListener('click', stopPlayback);
 
 document.getElementById('btn-clear').addEventListener('click', () => {
-  playing = false;
-  clearInterval(playTimer);
-  clearPlayHighlight();
+  stopPlayback();
   initData();
   buildGrid();
 });
@@ -576,13 +788,18 @@ function varLen(v) {
 const u32 = v => [(v>>24)&0xFF,(v>>16)&0xFF,(v>>8)&0xFF,v&0xFF];
 const u16 = v => [(v>>8)&0xFF,v&0xFF];
 
-document.getElementById('btn-export').addEventListener('click', () => {
+function writeMetaText(type, text) {
+  if (!text || !text.trim()) return [];
+  const bytes = Array.from(new TextEncoder().encode(text.trim()));
+  return [0x00, 0xFF, type, ...varLen(bytes.length), ...bytes];
+}
+
+function doExport(title, textNote, copyright) {
   const bpm        = +document.getElementById('bpm').value;
   const instrument = +document.getElementById('instrument').value;
-  const TPB        = 480;         // ticks per beat (quarter note)
-  const TPS        = TPB / 4;    // ticks per 16th step
+  const TPB        = 480;
+  const TPS        = TPB / 4;
 
-  // Collect events
   const evs = [];
   for (let r = 0; r < NUM_NOTES; r++) {
     const midi = rowToMidi(r);
@@ -604,9 +821,17 @@ document.getElementById('btn-export').addEventListener('click', () => {
 
   const track = [];
   const tempo = Math.round(60_000_000 / bpm);
+
+  // Meta events (all at tick 0)
   track.push(0x00, 0xFF, 0x51, 0x03, (tempo>>16)&0xFF, (tempo>>8)&0xFF, tempo&0xFF);
+  track.push(...writeMetaText(0x03, title));
+  track.push(...writeMetaText(0x01, textNote));
+  track.push(...writeMetaText(0x02, copyright));
+
+  // Program change
   track.push(0x00, 0xC0, instrument);
 
+  // Note events
   let cur = 0;
   for (const ev of evs) {
     track.push(...varLen(ev.tick - cur), ev.type, ev.note, ev.vel);
@@ -619,10 +844,44 @@ document.getElementById('btn-export').addEventListener('click', () => {
     0x4D,0x54,0x72,0x6B, ...u32(track.length), ...track,
   ]);
 
+  const safeTitle = (title && title.trim()) ? title.trim().replace(/[\\/:*?"<>|]/g, '_') : 'composition';
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([bytes], { type: 'audio/midi' }));
-  a.download = 'composition.mid';
+  a.download = safeTitle + '.mid';
   a.click();
+}
+
+// Export button → open modal
+document.getElementById('btn-export').addEventListener('click', () => {
+  const hasNotes = grid_data.some(row => row.some(v => v));
+  if (!hasNotes) { alert('ノートが入力されていません'); return; }
+  document.getElementById('meta-modal').classList.add('open');
+  document.getElementById('meta-title').focus();
+});
+
+// Modal: cancel
+document.getElementById('btn-meta-cancel').addEventListener('click', () => {
+  document.getElementById('meta-modal').classList.remove('open');
+});
+
+// Modal: save
+document.getElementById('btn-meta-save').addEventListener('click', () => {
+  const title     = document.getElementById('meta-title').value;
+  const textNote  = document.getElementById('meta-text').value;
+  const copyright = document.getElementById('meta-copyright').value;
+  document.getElementById('meta-modal').classList.remove('open');
+  doExport(title, textNote, copyright);
+});
+
+// Close modal on backdrop click
+document.getElementById('meta-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+
+// Enter key in modal fields
+document.getElementById('meta-modal').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-meta-save').click();
+  if (e.key === 'Escape') document.getElementById('meta-modal').classList.remove('open');
 });
 
 // ── AI Generation ──────────────────────────────────────
@@ -677,7 +936,7 @@ function generateIdea(direction) {
 
 function applyIdea() {
   const idea = currentIdea;
-  if (playing) { playing = false; clearInterval(playTimer); clearPlayHighlight(); }
+  stopPlayback();
   document.getElementById('bpm').value = idea.bpm;
   if (numBars !== 4) {
     document.getElementById('num-bars').value = '4';
