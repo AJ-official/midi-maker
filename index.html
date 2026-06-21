@@ -254,6 +254,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .meta-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 #btn-meta-cancel { background: #2a3a55; color: #aaa; }
 #btn-meta-save   { background: #e94560; color: #fff; }
+.meta-field select {
+  background: #1a2a40; border: 1px solid #2a4a70;
+  color: white; border-radius: 4px; padding: 5px 8px; font-size: 13px;
+}
+.meta-field select:focus { outline: none; border-color: #e94560; }
 </style>
 </head>
 <body>
@@ -291,6 +296,26 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
         <option value="4" selected>4小節</option>
         <option value="8">8小節</option>
         <option value="16">16小節</option>
+      </select>
+    </div>
+
+    <div class="ctrl">
+      <label>拍子</label>
+      <select id="timesig-num">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="9">9</option>
+        <option value="12">12</option>
+      </select>
+      <span style="color:#aaa;font-size:13px">/</span>
+      <select id="timesig-den">
+        <option value="2">2</option>
+        <option value="4" selected>4</option>
+        <option value="8">8</option>
       </select>
     </div>
 
@@ -362,6 +387,46 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     <div class="meta-field">
       <label>著作権 (Copyright)</label>
       <input type="text" id="meta-copyright" placeholder="例: © 2026 Your Name" maxlength="128">
+    </div>
+    <div class="meta-field">
+      <label>調 (Key Signature)</label>
+      <select id="meta-key">
+        <option value="">（指定なし）</option>
+        <optgroup label="長調 (Major)">
+          <option value="-7,0">Cb Major (7♭)</option>
+          <option value="-6,0">Gb Major (6♭)</option>
+          <option value="-5,0">Db Major (5♭)</option>
+          <option value="-4,0">Ab Major (4♭)</option>
+          <option value="-3,0">Eb Major (3♭)</option>
+          <option value="-2,0">Bb Major (2♭)</option>
+          <option value="-1,0">F Major (1♭)</option>
+          <option value="0,0">C Major (♮)</option>
+          <option value="1,0">G Major (1♯)</option>
+          <option value="2,0">D Major (2♯)</option>
+          <option value="3,0">A Major (3♯)</option>
+          <option value="4,0">E Major (4♯)</option>
+          <option value="5,0">B Major (5♯)</option>
+          <option value="6,0">F# Major (6♯)</option>
+          <option value="7,0">C# Major (7♯)</option>
+        </optgroup>
+        <optgroup label="短調 (Minor)">
+          <option value="-7,1">Ab minor (7♭)</option>
+          <option value="-6,1">Eb minor (6♭)</option>
+          <option value="-5,1">Bb minor (5♭)</option>
+          <option value="-4,1">F minor (4♭)</option>
+          <option value="-3,1">C minor (3♭)</option>
+          <option value="-2,1">G minor (2♭)</option>
+          <option value="-1,1">D minor (1♭)</option>
+          <option value="0,1">A minor (♮)</option>
+          <option value="1,1">E minor (1♯)</option>
+          <option value="2,1">B minor (2♯)</option>
+          <option value="3,1">F# minor (3♯)</option>
+          <option value="4,1">C# minor (4♯)</option>
+          <option value="5,1">G# minor (5♯)</option>
+          <option value="6,1">D# minor (6♯)</option>
+          <option value="7,1">A# minor (7♯)</option>
+        </optgroup>
+      </select>
     </div>
     <div class="meta-btns">
       <button id="btn-meta-cancel">キャンセル</button>
@@ -826,9 +891,22 @@ function writeMetaText(type, text) {
   return [0x00, 0xFF, type, ...varLen(bytes.length), ...bytes];
 }
 
-function doExport(title, textNote, copyright) {
+function getInstrumentName(program) {
+  let idx = 0;
+  for (const group of GM_GROUPS) {
+    for (const name of group.instruments) {
+      if (idx === program) return name;
+      idx++;
+    }
+  }
+  return null;
+}
+
+function doExport(title, textNote, copyright, keySig) {
   const bpm        = +document.getElementById('bpm').value;
   const instrument = +document.getElementById('instrument').value;
+  const tsNum      = +document.getElementById('timesig-num').value;
+  const tsDen      = +document.getElementById('timesig-den').value;
   const TPB        = 480;
   const TPS        = TPB / 4;
 
@@ -856,9 +934,16 @@ function doExport(title, textNote, copyright) {
 
   // Meta events (all at tick 0)
   track.push(0x00, 0xFF, 0x51, 0x03, (tempo>>16)&0xFF, (tempo>>8)&0xFF, tempo&0xFF);
+  track.push(0x00, 0xFF, 0x58, 0x04, tsNum, Math.log2(tsDen), 24, 8);
+  if (keySig) {
+    const [k, s] = keySig.split(',').map(Number);
+    track.push(0x00, 0xFF, 0x59, 0x02, k & 0xFF, s);
+  }
   track.push(...writeMetaText(0x03, title));
   track.push(...writeMetaText(0x01, textNote));
   track.push(...writeMetaText(0x02, copyright));
+  const instrName = getInstrumentName(instrument);
+  if (instrName) track.push(...writeMetaText(0x04, instrName));
 
   // Program change
   track.push(0x00, 0xC0, instrument);
@@ -901,8 +986,9 @@ document.getElementById('btn-meta-save').addEventListener('click', () => {
   const title     = document.getElementById('meta-title').value;
   const textNote  = document.getElementById('meta-text').value;
   const copyright = document.getElementById('meta-copyright').value;
+  const keySig    = document.getElementById('meta-key').value;
   document.getElementById('meta-modal').classList.remove('open');
-  doExport(title, textNote, copyright);
+  doExport(title, textNote, copyright, keySig);
 });
 
 // Close modal on backdrop click
