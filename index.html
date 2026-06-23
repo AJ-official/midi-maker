@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MIDI Maker</title>
 <script src="https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.js"></script>
+<script src="https://surikov.github.io/webaudiofont/npm/dist/WebAudioFontPlayer.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -576,6 +577,51 @@ let sfInstrument    = null;
 let sfLoadedProg    = -1;
 let sfLoading       = false;
 
+// ── WebAudioFont Drum State ────────────────────────────
+let wavPlayer       = null;
+const drumSamples   = new Map(); // midiNote → decoded wav data
+
+function ensureWavPlayer() {
+  if (!wavPlayer && typeof WebAudioFontPlayer !== 'undefined') {
+    wavPlayer = new WebAudioFontPlayer();
+  }
+  return wavPlayer;
+}
+
+function loadDrumNote(midiNote) {
+  if (drumSamples.has(midiNote)) return Promise.resolve();
+  const varName = `_drum_${midiNote}_0_JCLive_sf2_file`;
+  return new Promise(resolve => {
+    const doLoad = () => {
+      const wp = ensureWavPlayer();
+      if (!wp || !window[varName]) { resolve(); return; }
+      wp.loader.decodeAfterLoading(audioCtx, varName);
+      wp.loader.waitLoad(() => {
+        drumSamples.set(midiNote, window[varName]);
+        resolve();
+      });
+    };
+    if (window[varName]) { doLoad(); return; }
+    const script = document.createElement('script');
+    script.src = `https://surikov.github.io/webaudiofontdata/sound/128${midiNote}_0_JCLive_sf2_file.js`;
+    script.onload = doLoad;
+    script.onerror = () => resolve();
+    document.head.appendChild(script);
+  });
+}
+
+async function loadPercussionSamples() {
+  const active = new Set();
+  for (let r = 0; r < NUM_NOTES; r++) {
+    if (grid_data[r].some(v => v)) {
+      const midi = rowToMidi(r);
+      if (midi >= 35 && midi <= 81) active.add(midi);
+    }
+  }
+  if (active.size === 0) return;
+  await Promise.all([...active].map(note => loadDrumNote(note)));
+}
+
 function ensureMasterGain() {
   if (!masterGainNode) {
     masterGainNode = audioCtx.createGain();
@@ -592,15 +638,21 @@ function setSfStatus(state, text) {
 }
 
 async function loadSfInstrument(program) {
+  if (program === 128) {
+    sfLoadedProg = 128;
+    sfLoading = false;
+    setSfStatus('ready', '♪ GM Percussion Map');
+    return;
+  }
   if (sfLoadedProg === program && sfInstrument) return;
   if (sfLoading) return;
   sfLoading = true;
   setSfStatus('loading', '音色を読み込み中...');
   try {
-    const sfName = program === 128 ? 'standard_kit' : (GM_SF_NAMES[program] || 'acoustic_grand_piano');
+    const sfName = GM_SF_NAMES[program] || 'acoustic_grand_piano';
     sfInstrument = await Soundfont.instrument(audioCtx, sfName, { soundfont: 'MusyngKite', destination: ensureMasterGain() });
     sfLoadedProg = program;
-    const dispName = program === 128 ? 'GM Percussion Map' : (GM_SF_NAMES[program] || 'piano');
+    const dispName = GM_SF_NAMES[program] || 'piano';
     setSfStatus('ready', '♪ ' + dispName.replace(/_/g, ' '));
   } catch(e) {
     console.warn('Soundfont load failed:', e);
@@ -850,9 +902,16 @@ function stepDuration() {
 function midiToFreq(m) { return 440 * 2 ** ((m - 69) / 12); }
 
 function scheduleNote(midi, when, dur) {
+  if (isPercussion()) {
+    const data = drumSamples.get(midi);
+    const wp = ensureWavPlayer();
+    if (data && wp) {
+      wp.queueWaveTable(audioCtx, ensureMasterGain(), data, when, midi, Math.min(dur, 0.8));
+    }
+    return;
+  }
   if (sfInstrument) {
-    const d = isPercussion() ? Math.min(dur, 0.5) : dur * 0.85;
-    sfInstrument.play(midiNoteName(midi), when, { duration: d, gain: 1.0 });
+    sfInstrument.play(midiNoteName(midi), when, { duration: dur * 0.85, gain: 1.0 });
   } else {
     // Fallback oscillator
     const osc  = audioCtx.createOscillator();
@@ -923,8 +982,14 @@ document.getElementById('btn-play').addEventListener('click', async () => {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
 
   const program = +document.getElementById('instrument').value;
-  if (!sfInstrument && !sfLoading) {
-    const btn = document.getElementById('btn-play');
+  const btn = document.getElementById('btn-play');
+  if (program === 128) {
+    btn.textContent = '読み込み中...';
+    btn.disabled = true;
+    await loadPercussionSamples();
+    btn.textContent = '▶ 再生';
+    btn.disabled = false;
+  } else if (!sfInstrument && !sfLoading) {
     btn.textContent = '読み込み中...';
     btn.disabled = true;
     await loadSfInstrument(program);
