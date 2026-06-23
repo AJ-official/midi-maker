@@ -120,8 +120,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 10px;
   border-bottom: 1px solid #162040;
   user-select: none;
-  cursor: default;
+  cursor: pointer;
+  transition: filter 0.05s;
 }
+.key-row:hover  { filter: brightness(1.4); }
+.key-row:active { filter: brightness(1.8); }
 .key-row.white { background: #1e3d6e; color: #bbb; }
 .key-row.black { background: #0f1e3a; color: #777; }
 .key-row.c-label { color: #e94560 !important; font-weight: bold; }
@@ -702,6 +705,21 @@ function buildUI() {
   scrollToMiddleC();
 }
 
+async function previewNote(midi) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  const program = +document.getElementById('instrument').value;
+  if (program === 128) {
+    if (!drumSamples.has(midi)) await loadDrumNote(midi);
+    const data = drumSamples.get(midi);
+    const wp = ensureWavPlayer();
+    if (data && wp) wp.queueWaveTable(audioCtx, ensureMasterGain(), data, audioCtx.currentTime, midi, 0.8);
+  } else {
+    if (!sfInstrument && !sfLoading) await loadSfInstrument(program);
+    if (sfInstrument) sfInstrument.play(midiNoteName(midi), audioCtx.currentTime, { duration: 1.0, gain: 1.0 });
+  }
+}
+
 function buildKeys() {
   const inner = document.getElementById('key-inner');
   inner.innerHTML = '';
@@ -731,6 +749,7 @@ function buildKeys() {
         div.textContent = '♯';
       }
     }
+    div.addEventListener('mousedown', e => { e.preventDefault(); previewNote(midi); });
     inner.appendChild(div);
   }
 }
