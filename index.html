@@ -7,6 +7,7 @@
 <script src="https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.js"></script>
 <script src="https://surikov.github.io/webaudiofont/npm/dist/WebAudioFontPlayer.js"></script>
 <style>
+:root { --cell-w: 24px; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -62,6 +63,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #btn-clear  { background: #607d8b; color: #fff; }
 #btn-export { background: #e94560; color: #fff; }
 
+/* ── Resolution buttons ── */
+.res-btn { background: #1e2d4e; color: #aaa; }
+.res-btn.active { background: #4caf50; color: #fff; }
+
+/* ── Select mode ── */
+#btn-select.active { background: #ff9800; color: #fff; }
+.cell.selected { outline: 2px solid #ff9800; outline-offset: -2px; background: rgba(255,152,0,0.25) !important; }
+.cell.paste-preview { outline: 2px dashed #7ab3ff; outline-offset: -2px; background: rgba(122,179,255,0.2) !important; }
+
 /* ── Toolbar advanced toggle ── */
 #toolbar-advanced { display: contents; }
 #toolbar-advanced.hidden > * { display: none; }
@@ -99,7 +109,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   flex-direction: column;
 }
 
-#corner { width: 56px; height: 24px; background: #0d2040; flex-shrink: 0; }
+#corner { width: 56px; height: 44px; background: #0d2040; flex-shrink: 0; }
 
 #key-col {
   width: 56px;
@@ -139,7 +149,41 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #header-scroll {
   overflow: hidden;
   flex-shrink: 0;
-  height: 24px;
+  height: 44px;
+}
+
+#chord-row {
+  display: flex;
+  height: 20px;
+}
+
+.chord-cell {
+  flex-shrink: 0;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #7ab3ff;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: text;
+  border-right: 1px solid #162040;
+  user-select: none;
+  box-sizing: border-box;
+}
+.chord-cell:hover { background: rgba(122,179,255,0.08); }
+.chord-cell input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #7ab3ff;
+  color: #7ab3ff;
+  font-size: 11px;
+  font-weight: bold;
+  width: 100%;
+  outline: none;
+  padding: 0;
 }
 
 #header-row {
@@ -149,7 +193,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .header-cell {
-  width: 24px;
+  width: var(--cell-w);
   height: 24px;
   flex-shrink: 0;
   display: flex;
@@ -175,7 +219,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .cell {
-  width: 24px;
+  width: var(--cell-w);
   height: 20px;
   border-right: 1px solid #162040;
   border-bottom: 1px solid #162040;
@@ -340,8 +384,19 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     <input type="range" id="volume" min="0" max="3" step="0.05" value="2">
     <span id="volume-pct">100%</span>
   </div>
+  <button id="btn-select">⬚ 選択</button>
   <button id="btn-clear">🗑 クリア</button>
   <button id="btn-export">💾 MIDIで保存</button>
+  <div class="ctrl">
+    <button id="btn-zoom-out">－</button>
+    <span id="zoom-label">100%</span>
+    <button id="btn-zoom-in">＋</button>
+  </div>
+  <div class="ctrl">
+    <button class="res-btn" data-res="8">8分</button>
+    <button class="res-btn active" data-res="16">16分</button>
+    <button class="res-btn" data-res="32">32分</button>
+  </div>
 </div>
 
 <!-- AI Card -->
@@ -368,7 +423,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
   <!-- Right column: header + grid -->
   <div id="right-col">
-    <div id="header-scroll"><div id="header-row"></div></div>
+    <div id="header-scroll"><div id="chord-row"></div><div id="header-row"></div></div>
     <div id="grid-scroll">
       <div id="grid"></div>
     </div>
@@ -513,6 +568,13 @@ const GM_DRUM_NAMES = {
 };
 
 // soundfont-player instrument names (index = GM program number)
+// MusyngKiteに存在しない音色はFluidR3_GMで代替 { name, soundfont }
+const GM_SF_OVERRIDES = {
+   54: { name: 'lead_6_voice',  soundfont: 'FluidR3_GM' }, // synth_voice は両fontに存在しない
+   87: { name: 'lead_7_fifths', soundfont: 'MusyngKite'  }, // lead_8_bass_lead は両fontに存在しない
+  103: { name: 'fx_7_echoes',   soundfont: 'MusyngKite'  }, // fx_8_sci_fi は両fontに存在しない
+};
+
 const GM_SF_NAMES = [
   'acoustic_grand_piano','bright_acoustic_piano','electric_grand_piano','honkytonk_piano',
   'electric_piano_1','electric_piano_2','harpsichord','clavinet',
@@ -523,9 +585,9 @@ const GM_SF_NAMES = [
   'acoustic_bass','electric_bass_finger','electric_bass_pick','fretless_bass',
   'slap_bass_1','slap_bass_2','synth_bass_1','synth_bass_2',
   'violin','viola','cello','contrabass','tremolo_strings','pizzicato_strings','orchestral_harp','timpani',
-  'string_ensemble_1','string_ensemble_2','synthstrings_1','synthstrings_2',
+  'string_ensemble_1','string_ensemble_2','synth_strings_1','synth_strings_2',
   'choir_aahs','voice_oohs','synth_voice','orchestra_hit',
-  'trumpet','trombone','tuba','muted_trumpet','french_horn','brass_section','synthbrass_1','synthbrass_2',
+  'trumpet','trombone','tuba','muted_trumpet','french_horn','brass_section','synth_brass_1','synth_brass_2',
   'soprano_sax','alto_sax','tenor_sax','baritone_sax','oboe','english_horn','bassoon','clarinet',
   'piccolo','flute','recorder','pan_flute','blown_bottle','shakuhachi','whistle','ocarina',
   'lead_1_square','lead_2_sawtooth','lead_3_calliope','lead_4_chiff',
@@ -550,7 +612,7 @@ let STEPS_PER_BEAT = 4;  // recalculated on timesig change
 function updateTimeSig() {
   const tsNum = +document.getElementById('timesig-num').value;
   const tsDen = +document.getElementById('timesig-den').value;
-  STEPS_PER_BEAT = Math.round(16 / tsDen);
+  STEPS_PER_BEAT = Math.round(gridResolution / tsDen);
   STEPS_PER_BAR  = tsNum * STEPS_PER_BEAT;
 }
 
@@ -571,6 +633,80 @@ function initData() {
   grid_data = Array.from({ length: NUM_NOTES }, () => new Array(numSteps).fill(false));
 }
 initData();
+
+// ── Zoom ───────────────────────────────────────────────
+const CELL_WIDTHS = [12, 16, 20, 24, 32, 40, 48, 64];
+const CELL_W_DEFAULT = 24;
+let cellWidthIdx = CELL_WIDTHS.indexOf(CELL_W_DEFAULT);
+
+function setZoom(idx) {
+  cellWidthIdx = Math.max(0, Math.min(CELL_WIDTHS.length - 1, idx));
+  const w = CELL_WIDTHS[cellWidthIdx];
+  document.documentElement.style.setProperty('--cell-w', w + 'px');
+  const pct = Math.round(w / CELL_W_DEFAULT * 100);
+  document.getElementById('zoom-label').textContent = pct + '%';
+  document.getElementById('btn-zoom-out').disabled = cellWidthIdx === 0;
+  document.getElementById('btn-zoom-in').disabled  = cellWidthIdx === CELL_WIDTHS.length - 1;
+  const g = document.getElementById('grid');
+  if (g.children.length) {
+    g.style.gridTemplateColumns = `repeat(${numSteps}, ${w}px)`;
+    g.style.width = numSteps * w + 'px';
+    document.getElementById('header-row').style.width = numSteps * w + 'px';
+    document.getElementById('chord-row').style.width  = numSteps * w + 'px';
+    document.querySelectorAll('.chord-cell').forEach(cell => {
+      cell.style.width = STEPS_PER_BAR * w + 'px';
+    });
+  }
+}
+
+document.getElementById('btn-zoom-in').addEventListener('click',  () => setZoom(cellWidthIdx + 1));
+document.getElementById('btn-zoom-out').addEventListener('click', () => setZoom(cellWidthIdx - 1));
+
+// ── Grid Resolution ────────────────────────────────────
+let gridResolution = 16; // 8 / 16 / 32
+
+function extractNoteRuns() {
+  const runs = [];
+  for (let r = 0; r < NUM_NOTES; r++) {
+    let c = 0;
+    while (c < numSteps) {
+      if (grid_data[r][c]) {
+        let len = 1;
+        while (c + len < numSteps && grid_data[r][c + len]) len++;
+        runs.push({ r, start: c, len });
+        c += len;
+      } else { c++; }
+    }
+  }
+  return runs;
+}
+
+function setResolution(newRes) {
+  const runs  = extractNoteRuns();
+  const ratio = newRes / gridResolution;
+  gridResolution = newRes;
+  updateTimeSig();
+  numSteps = numBars * STEPS_PER_BAR;
+  initData();
+  runs.forEach(({ r, start, len }) => {
+    const ns = Math.round(start * ratio);
+    const nl = Math.max(1, Math.round(len * ratio));
+    for (let s = 0; s < nl; s++) {
+      if (ns + s < numSteps) grid_data[r][ns + s] = true;
+    }
+  });
+  stopPlayback();
+  buildHeader();
+  buildGrid();
+  scrollToMiddleC();
+  document.querySelectorAll('.res-btn').forEach(b => {
+    b.classList.toggle('active', +b.dataset.res === newRes);
+  });
+}
+
+document.querySelectorAll('.res-btn').forEach(btn => {
+  btn.addEventListener('click', () => setResolution(+btn.dataset.res));
+});
 
 // ── Soundfont State ────────────────────────────────────
 let audioCtx        = null;
@@ -652,8 +788,10 @@ async function loadSfInstrument(program) {
   sfLoading = true;
   setSfStatus('loading', '音色を読み込み中...');
   try {
-    const sfName = GM_SF_NAMES[program] || 'acoustic_grand_piano';
-    sfInstrument = await Soundfont.instrument(audioCtx, sfName, { soundfont: 'MusyngKite', destination: ensureMasterGain() });
+    const override  = GM_SF_OVERRIDES[program];
+    const sfName    = override ? override.name : (GM_SF_NAMES[program] || 'acoustic_grand_piano');
+    const soundfont = override ? override.soundfont : 'MusyngKite';
+    sfInstrument = await Soundfont.instrument(audioCtx, sfName, { soundfont, destination: ensureMasterGain() });
     sfLoadedProg = program;
     const dispName = GM_SF_NAMES[program] || 'piano';
     setSfStatus('ready', '♪ ' + dispName.replace(/_/g, ' '));
@@ -754,10 +892,53 @@ function buildKeys() {
   }
 }
 
+// ── Chord Labels ───────────────────────────────────────
+let barChords = Array(16).fill(''); // インデックス=小節番号
+
+function buildChordRow() {
+  const row = document.getElementById('chord-row');
+  row.innerHTML = '';
+  const cw = CELL_WIDTHS[cellWidthIdx];
+  row.style.width = numSteps * cw + 'px';
+  for (let bar = 0; bar < numBars; bar++) {
+    const cell = document.createElement('div');
+    cell.className = 'chord-cell';
+    cell.style.width = STEPS_PER_BAR * cw + 'px';
+    cell.textContent = barChords[bar] || '';
+    cell.dataset.bar = bar;
+    cell.addEventListener('dblclick', startChordEdit);
+    row.appendChild(cell);
+  }
+}
+
+function startChordEdit(e) {
+  const cell = e.currentTarget;
+  const bar = +cell.dataset.bar;
+  const prev = barChords[bar] || '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = prev;
+  input.maxLength = 16;
+  cell.textContent = '';
+  cell.appendChild(input);
+  input.focus();
+  input.select();
+  const finish = (cancel) => {
+    barChords[bar] = cancel ? prev : input.value.trim();
+    cell.textContent = barChords[bar];
+  };
+  input.addEventListener('blur', () => finish(false));
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter')  { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') { finish(true); }
+  });
+}
+
 function buildHeader() {
+  buildChordRow();
   const row = document.getElementById('header-row');
   row.innerHTML = '';
-  row.style.width = numSteps * 24 + 'px';
+  row.style.width = numSteps * CELL_WIDTHS[cellWidthIdx] + 'px';
   for (let c = 0; c < numSteps; c++) {
     const div = document.createElement('div');
     div.className = 'header-cell';
@@ -775,9 +956,10 @@ function buildHeader() {
 function buildGrid() {
   const g = document.getElementById('grid');
   g.innerHTML = '';
-  g.style.gridTemplateColumns = `repeat(${numSteps}, 24px)`;
+  const cw = CELL_WIDTHS[cellWidthIdx];
+  g.style.gridTemplateColumns = `repeat(${numSteps}, ${cw}px)`;
   g.style.gridTemplateRows    = `repeat(${NUM_NOTES}, 20px)`;
-  g.style.width  = numSteps * 24 + 'px';
+  g.style.width  = numSteps * cw + 'px';
   g.style.height = NUM_NOTES * 20 + 'px';
 
   for (let r = 0; r < NUM_NOTES; r++) {
@@ -809,17 +991,175 @@ document.getElementById('grid-scroll').addEventListener('scroll', function() {
   document.getElementById('header-scroll').scrollLeft = this.scrollLeft;
 });
 
+// ── Select / Copy / Paste / Move ──────────────────────────────
+let selectMode = false;
+let sel = null;       // { r0,c0,r1,c1 } raw (未正規化)
+let clipboard = null; // { cells:[{dr,dc}] }
+let pasteMode = false;
+let hoverR = 0, hoverC = 0;       // 直近のマウス位置
+let moveState = null; // { notes:[{r,c}], grabR, grabC, dR:0, dC:0 }
+
+const getNorm = () => sel ? {
+  r0: Math.min(sel.r0, sel.r1), r1: Math.max(sel.r0, sel.r1),
+  c0: Math.min(sel.c0, sel.c1), c1: Math.max(sel.c0, sel.c1),
+} : null;
+
+const inSel = (r, c) => { const n = getNorm(); return n && r >= n.r0 && r <= n.r1 && c >= n.c0 && c <= n.c1; };
+
+function redrawSel() {
+  document.querySelectorAll('.cell.selected').forEach(el => el.classList.remove('selected'));
+  const n = getNorm(); if (!n) return;
+  for (let r = n.r0; r <= n.r1; r++)
+    for (let c = n.c0; c <= n.c1; c++)
+      cellEl(r, c)?.classList.add('selected');
+}
+
+function clearPreview() {
+  document.querySelectorAll('.cell.paste-preview').forEach(el => el.classList.remove('paste-preview'));
+}
+
+function redrawPreview(cells, pivotR, pivotC) {
+  clearPreview();
+  cells.forEach(({ dr, dc }) => {
+    const r = pivotR + dr, c = pivotC + dc;
+    if (r >= 0 && r < NUM_NOTES && c >= 0 && c < numSteps)
+      cellEl(r, c)?.classList.add('paste-preview');
+  });
+}
+
+function enterSelectMode(on) {
+  selectMode = on;
+  document.getElementById('btn-select').classList.toggle('active', on);
+  if (!on) {
+    sel = null; redrawSel();
+    pasteMode = false; clearPreview();
+    if (moveState) cancelMove();
+  }
+}
+
+function cancelMove() {
+  if (!moveState) return;
+  // ノートを元の位置に戻す
+  moveState.notes.forEach(({ r, c }) => {
+    grid_data[r][c] = true;
+    cellEl(r, c)?.classList.add('active');
+  });
+  clearPreview();
+  moveState = null;
+}
+
+document.getElementById('btn-select').addEventListener('click', () => enterSelectMode(!selectMode));
+
+// ── キーボード ─────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (moveState) { cancelMove(); return; }
+    if (pasteMode) { pasteMode = false; clearPreview(); return; }
+    enterSelectMode(false);
+    return;
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectMode) {
+    const n = getNorm(); if (!n) return;
+    for (let r = n.r0; r <= n.r1; r++)
+      for (let c = n.c0; c <= n.c1; c++) {
+        grid_data[r][c] = false;
+        cellEl(r, c)?.classList.remove('active');
+      }
+    e.preventDefault();
+    return;
+  }
+  if (e.ctrlKey && e.key === 'c') {
+    const n = getNorm(); if (!n) return;
+    const cells = [];
+    for (let r = n.r0; r <= n.r1; r++)
+      for (let c = n.c0; c <= n.c1; c++)
+        if (grid_data[r][c]) cells.push({ dr: r - n.r0, dc: c - n.c0 });
+    clipboard = { cells };
+    pasteMode = true;
+    redrawPreview(cells, hoverR, hoverC);
+    e.preventDefault();
+  }
+  if (e.ctrlKey && e.key === 'v') {
+    if (!clipboard) return;
+    if (!pasteMode) pasteMode = true;
+    commitPaste(hoverR, hoverC);
+    e.preventDefault();
+  }
+});
+
+function commitPaste(pivotR, pivotC) {
+  clipboard.cells.forEach(({ dr, dc }) => {
+    const r = pivotR + dr, c = pivotC + dc;
+    if (r >= 0 && r < NUM_NOTES && c >= 0 && c < numSteps) {
+      grid_data[r][c] = true;
+      cellEl(r, c)?.classList.add('active');
+    }
+  });
+  clearPreview();
+  pasteMode = false;
+}
+
 // ── Mouse interaction ──────────────────────────────────
 let mouseDown = false;
-let dragMode  = null; // 'add' | 'remove'
+let dragMode  = null; // 'add' | 'remove' | 'select' | 'move'
 
 document.addEventListener('mousedown', () => mouseDown = true);
-document.addEventListener('mouseup',   () => { mouseDown = false; dragMode = null; });
+document.addEventListener('mouseup', () => {
+  mouseDown = false;
+  if (dragMode === 'move' && moveState) {
+    // 移動確定
+    const { dR, dC, notes } = moveState;
+    clearPreview();
+    notes.forEach(({ r, c }) => {
+      const nr = r + dR, nc = c + dC;
+      if (nr >= 0 && nr < NUM_NOTES && nc >= 0 && nc < numSteps) {
+        grid_data[nr][nc] = true;
+        cellEl(nr, nc)?.classList.add('active');
+      }
+    });
+    // 選択範囲を移動後の位置に更新
+    if (sel) sel = { r0: sel.r0 + dR, c0: sel.c0 + dC, r1: sel.r1 + dR, c1: sel.c1 + dC };
+    redrawSel();
+    moveState = null;
+  }
+  dragMode = null;
+});
 
 function onDown(e) {
   e.preventDefault();
   const r = +e.currentTarget.dataset.r;
   const c = +e.currentTarget.dataset.c;
+
+  // ペーストモード中はクリックで貼り付け
+  if (pasteMode && clipboard) {
+    commitPaste(r, c);
+    return;
+  }
+
+  if (selectMode) {
+    if (inSel(r, c) && sel) {
+      // 選択範囲内 → 移動開始
+      const n = getNorm();
+      const notes = [];
+      for (let nr = n.r0; nr <= n.r1; nr++)
+        for (let nc = n.c0; nc <= n.c1; nc++)
+          if (grid_data[nr][nc]) notes.push({ r: nr, c: nc });
+      notes.forEach(({ r: nr, c: nc }) => {
+        grid_data[nr][nc] = false;
+        cellEl(nr, nc)?.classList.remove('active');
+      });
+      moveState = { notes, grabR: r, grabC: c, dR: 0, dC: 0, selR0: n.r0, selC0: n.c0 };
+      dragMode = 'move';
+      redrawPreview(notes.map(({ r: nr, c: nc }) => ({ dr: nr - n.r0, dc: nc - n.c0 })), n.r0, n.c0);
+    } else {
+      // 新規選択
+      sel = { r0: r, c0: c, r1: r, c1: c };
+      redrawSel();
+      dragMode = 'select';
+    }
+    return;
+  }
+
   if (grid_data[r][c]) {
     dragMode = 'remove';
     removeNote(r, c);
@@ -830,9 +1170,34 @@ function onDown(e) {
 }
 
 function onEnter(e) {
-  if (!mouseDown || !dragMode) return;
   const r = +e.currentTarget.dataset.r;
   const c = +e.currentTarget.dataset.c;
+  hoverR = r; hoverC = c;
+
+  // ペーストプレビュー（ドラッグ中でなくても追従）
+  if (pasteMode && clipboard && !mouseDown) {
+    redrawPreview(clipboard.cells, r, c);
+    return;
+  }
+
+  if (!mouseDown || !dragMode) return;
+
+  if (dragMode === 'select') {
+    sel.r1 = r; sel.c1 = c;
+    redrawSel();
+    return;
+  }
+  if (dragMode === 'move' && moveState) {
+    const dR = r - moveState.grabR;
+    const dC = c - moveState.grabC;
+    moveState.dR = dR; moveState.dC = dC;
+    const { selR0, selC0, notes } = moveState;
+    redrawPreview(
+      notes.map(({ r: nr, c: nc }) => ({ dr: nr - selR0, dc: nc - selC0 })),
+      selR0 + dR, selC0 + dC
+    );
+    return;
+  }
   if (dragMode === 'add')    addNote(r, c);
   if (dragMode === 'remove') removeNote(r, c);
 }
@@ -865,6 +1230,9 @@ document.getElementById('num-bars').addEventListener('change', function() {
       grid_data[r].length = newSteps;
     }
   }
+  // barChords を拡縮
+  while (barChords.length < newBars) barChords.push('');
+  barChords.length = newBars;
   numBars  = newBars;
   numSteps = newSteps;
   buildHeader();
@@ -909,13 +1277,14 @@ document.getElementById('instrument').addEventListener('change', function() {
 
 // ── Playback ───────────────────────────────────────────
 let playing    = false;
+let paused     = false;
 let playTimer  = null;
 let curStep    = 0;
 let nextTime   = 0;
 let lastHighCol = -1;
 
 function stepDuration() {
-  return 60 / (+document.getElementById('bpm').value) / 4;
+  return 60 / (+document.getElementById('bpm').value) * 4 / gridResolution;
 }
 
 function midiToFreq(m) { return 440 * 2 ** ((m - 69) / 12); }
@@ -996,38 +1365,64 @@ function clearPlayHighlight() {
 }
 
 document.getElementById('btn-play').addEventListener('click', async () => {
-  if (playing) return;
+  const btn = document.getElementById('btn-play');
+
+  // 再生中 → 一時停止
+  if (playing) {
+    playing = false;
+    paused  = true;
+    clearInterval(playTimer);
+    if (sfInstrument) sfInstrument.stop();
+    curStep = lastHighCol >= 0 ? lastHighCol : curStep;
+    btn.textContent = '▶ 再生';
+    return;
+  }
+
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
 
+  // 一時停止中 → 再開（楽器ロード不要）
+  if (paused) {
+    paused   = false;
+    playing  = true;
+    nextTime = audioCtx.currentTime + 0.05;
+    scheduleLoop();
+    playTimer = setInterval(scheduleLoop, 50);
+    btn.textContent = '⏸ 一時停止';
+    return;
+  }
+
+  // 停止状態 → 最初から再生
   const program = +document.getElementById('instrument').value;
-  const btn = document.getElementById('btn-play');
   if (program === 128) {
     btn.textContent = '読み込み中...';
     btn.disabled = true;
     await loadPercussionSamples();
-    btn.textContent = '▶ 再生';
     btn.disabled = false;
   } else if (!sfInstrument && !sfLoading) {
     btn.textContent = '読み込み中...';
     btn.disabled = true;
     await loadSfInstrument(program);
-    btn.textContent = '▶ 再生';
     btn.disabled = false;
   }
 
   playing  = true;
+  paused   = false;
   curStep  = 0;
   nextTime = audioCtx.currentTime + 0.05;
   scheduleLoop();
   playTimer = setInterval(scheduleLoop, 50);
+  btn.textContent = '⏸ 一時停止';
 });
 
 function stopPlayback() {
   playing = false;
+  paused  = false;
+  curStep = 0;
   clearInterval(playTimer);
   clearPlayHighlight();
   if (sfInstrument) sfInstrument.stop();
+  document.getElementById('btn-play').textContent = '▶ 再生';
 }
 
 document.getElementById('btn-stop').addEventListener('click', stopPlayback);
@@ -1072,7 +1467,7 @@ function doExport(title, textNote, copyright, keySig) {
   const tsNum      = +document.getElementById('timesig-num').value;
   const tsDen      = +document.getElementById('timesig-den').value;
   const TPB        = 480;
-  const TPS        = TPB / 4;
+  const TPS        = TPB * 4 / gridResolution;
 
   const evs = [];
   for (let r = 0; r < NUM_NOTES; r++) {
@@ -1230,40 +1625,37 @@ function applyIdea() {
   const idea = currentIdea;
   stopPlayback();
   document.getElementById('bpm').value = idea.bpm;
-  if (numBars !== 4) {
-    document.getElementById('num-bars').value = '4';
-    numBars  = 4;
-    numSteps = numBars * STEPS_PER_BAR;
-    buildHeader();
-  }
   fillGridFromChords(idea.chords);
   renderAICard(idea);
 }
 
 function fillGridFromChords(chords) {
   initData();
-  const barsPerChord = Math.floor(numBars / chords.length);
-  chords.forEach((chord, i) => {
+  // 1コード = 1小節、numBars分をループで展開
+  for (let bar = 0; bar < numBars; bar++) {
+    const chord = chords[bar % chords.length];
     const notes = CHORD_NOTES[chord];
-    if (!notes) return;
-    const startStep = i * barsPerChord * STEPS_PER_BAR;
-    const durSteps  = barsPerChord * STEPS_PER_BAR - 1;
+    if (!notes) continue;
+    const startStep = bar * STEPS_PER_BAR;
+    const durSteps  = STEPS_PER_BAR - 1;
     notes.forEach(midi => {
       if (midi < MIDI_LO || midi >= MIDI_HI) return;
       const r = (MIDI_HI - 1) - midi;
       for (let s = 0; s < durSteps; s++) {
-        const c = startStep + s;
-        if (c < numSteps) grid_data[r][c] = true;
+        grid_data[r][startStep + s] = true;
       }
     });
-  });
+  }
   buildGrid();
   scrollToMiddleC();
 }
 
 function renderAICard(idea) {
+  const expanded = Array.from({ length: numBars }, (_, i) => idea.chords[i % idea.chords.length]);
+  barChords = [...expanded];
+  buildChordRow();
   document.getElementById('ai-mood').textContent   = idea.mood;
-  document.getElementById('ai-chords').textContent = idea.chords.join(' → ');
+  document.getElementById('ai-chords').textContent = expanded.join(' → ');
   document.getElementById('ai-bpm').textContent    = 'BPM ' + idea.bpm;
   document.getElementById('ai-card').style.display = 'flex';
 }
