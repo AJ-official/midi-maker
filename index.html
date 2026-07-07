@@ -163,9 +163,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   display: flex;
   align-items: center;
   padding-left: 4px;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: bold;
-  color: #7ab3ff;
+  color: #fff;
   overflow: hidden;
   white-space: nowrap;
   cursor: text;
@@ -178,8 +178,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: transparent;
   border: none;
   border-bottom: 1px solid #7ab3ff;
-  color: #7ab3ff;
-  font-size: 11px;
+  color: #fff;
+  font-size: 15px;
   font-weight: bold;
   width: 100%;
   outline: none;
@@ -260,11 +260,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding: 10px 16px; gap: 10px;
   flex-direction: column;
 }
-.ai-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-#ai-mood   { font-size: 16px; font-weight: bold; color: #e94560; }
+.ai-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 #ai-chords { font-size: 14px; color: #7ab3ff; letter-spacing: 0.1em; }
 #ai-bpm    { font-size: 12px; color: #556; }
-#direction-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+#direction-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .btn-dir {
   padding: 5px 14px; background: transparent;
   border: 1px solid #243558; border-radius: 20px;
@@ -386,6 +385,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   </div>
   <button id="btn-select">⬚ 選択</button>
   <button id="btn-clear">🗑 クリア</button>
+  <button id="btn-import">📂 MIDI読み込み</button>
+  <input type="file" id="import-file" accept=".mid,.midi,audio/midi,audio/x-midi" style="display:none">
   <button id="btn-export">💾 MIDIで保存</button>
   <div class="ctrl">
     <button id="btn-zoom-out">－</button>
@@ -402,15 +403,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 <!-- AI Card -->
 <div id="ai-card">
   <div class="ai-row">
-    <span id="ai-mood"></span>
     <span id="ai-chords"></span>
     <span id="ai-bpm"></span>
-  </div>
-  <div id="direction-btns">
-    <button class="btn-dir" data-dir="bright">もっと明るく</button>
-    <button class="btn-dir" data-dir="emo">もっとエモく</button>
-    <button class="btn-dir" data-dir="quiet">もっと静か</button>
-    <button class="btn-dir" data-dir="other">別案</button>
+    <div id="direction-btns">
+      <button class="btn-dir" data-dir="bright">もっと明るく</button>
+      <button class="btn-dir" data-dir="emo">もっとエモく</button>
+      <button class="btn-dir" data-dir="quiet">もっと静か</button>
+      <button class="btn-dir" data-dir="other">別案</button>
+    </div>
   </div>
 </div>
 
@@ -909,6 +909,16 @@ function buildChordRow() {
     cell.addEventListener('dblclick', startChordEdit);
     row.appendChild(cell);
   }
+  updateChordDisplay();
+}
+
+// Mirror the bar-chords (shown above each bar) into the AI card's progression display
+function updateChordDisplay() {
+  const el = document.getElementById('ai-chords');
+  if (!el) return;
+  const chords = [];
+  for (let bar = 0; bar < numBars; bar++) chords.push(barChords[bar] || '—');
+  el.textContent = chords.join(' → ');
 }
 
 function startChordEdit(e) {
@@ -926,6 +936,7 @@ function startChordEdit(e) {
   const finish = (cancel) => {
     barChords[bar] = cancel ? prev : input.value.trim();
     cell.textContent = barChords[bar];
+    updateChordDisplay();
   };
   input.addEventListener('blur', () => finish(false));
   input.addEventListener('keydown', ev => {
@@ -1537,6 +1548,211 @@ function doExport(title, textNote, copyright, keySig) {
   a.click();
 }
 
+// ── SMF Import ─────────────────────────────────────────
+function readVarLen(d, p) {
+  let v = 0, b;
+  do { b = d[p.i++]; v = (v << 7) | (b & 0x7F); } while (b & 0x80);
+  return v;
+}
+
+function parseSMF(data) {
+  if (!(data[0]===0x4D && data[1]===0x54 && data[2]===0x68 && data[3]===0x64))
+    throw new Error('MIDIファイルではありません（MThdが見つかりません）');
+  const division = (data[12] << 8) | data[13];
+  if (division & 0x8000) throw new Error('SMPTEタイムコード形式は未対応です');
+  const ntrks = (data[10] << 8) | data[11];
+
+  const noteEvents = [];   // { tick, on, ch, note, vel }
+  const programs   = [];   // { tick, ch, program }
+  let tempo = 500000;      // default = 120BPM
+  let tsNum = 4, tsDenPow = 2, tsSet = false;
+
+  let pos = 14;
+  for (let t = 0; t < ntrks && pos + 8 <= data.length; t++) {
+    const len = (data[pos+4]<<24)|(data[pos+5]<<16)|(data[pos+6]<<8)|data[pos+7];
+    if (!(data[pos]===0x4D && data[pos+1]===0x54 && data[pos+2]===0x72 && data[pos+3]===0x6B)) {
+      pos += 8 + len; continue;   // not an MTrk chunk — skip
+    }
+    const end = pos + 8 + len;
+    const p = { i: pos + 8 };
+    let tick = 0, running = 0;
+    while (p.i < end) {
+      tick += readVarLen(data, p);
+      let status = data[p.i];
+      if (status & 0x80) { p.i++; if (status < 0xF0) running = status; }
+      else status = running;
+      const type = status & 0xF0;
+      const ch   = status & 0x0F;
+      if (status === 0xFF) {                       // meta
+        const mtype = data[p.i++], mlen = readVarLen(data, p);
+        if (mtype === 0x51 && mlen === 3) {
+          tempo = (data[p.i]<<16)|(data[p.i+1]<<8)|data[p.i+2];
+        } else if (mtype === 0x58 && mlen >= 2 && !tsSet) {
+          tsNum = data[p.i]; tsDenPow = data[p.i+1]; tsSet = true;
+        }
+        p.i += mlen;
+      } else if (status === 0xF0 || status === 0xF7) {  // sysex
+        p.i += readVarLen(data, p);
+      } else if (type === 0x90) {                  // note on
+        const note = data[p.i++], vel = data[p.i++];
+        noteEvents.push({ tick, on: vel > 0, ch, note, vel });
+      } else if (type === 0x80) {                  // note off
+        const note = data[p.i++]; p.i++;
+        noteEvents.push({ tick, on: false, ch, note, vel: 0 });
+      } else if (type === 0xC0) {                  // program change
+        programs.push({ tick, ch, program: data[p.i++] });
+      } else if (type === 0xD0) {                  // channel pressure (1 byte)
+        p.i++;
+      } else if (type === 0xA0 || type === 0xB0 || type === 0xE0) {  // 2 bytes
+        p.i += 2;
+      } else {
+        p.i++;                                     // unknown — advance to avoid a stall
+      }
+    }
+    pos = end;
+  }
+  return { division, tempo, tsNum, tsDenPow, noteEvents, programs };
+}
+
+function pairNotes(noteEvents) {
+  // off before on when they share a tick, so re-struck notes pair correctly
+  noteEvents.sort((a, b) => a.tick - b.tick || (a.on ? 1 : -1));
+  const active = new Map();   // ch*128+note -> [startTick, ...]
+  const notes = [];
+  for (const e of noteEvents) {
+    const key = e.ch * 128 + e.note;
+    if (e.on) {
+      if (!active.has(key)) active.set(key, []);
+      active.get(key).push(e.tick);
+    } else {
+      const st = active.get(key);
+      if (st && st.length) {
+        const start = st.shift();
+        if (e.tick > start) notes.push({ midi: e.note, ch: e.ch, start, end: e.tick });
+      }
+    }
+  }
+  return notes;
+}
+
+function applyImport(parsed, fileName) {
+  const notes = pairNotes(parsed.noteEvents);
+  if (!notes.length) { alert('読み込めるノートがありませんでした'); return; }
+
+  const melodic = notes.filter(n => n.ch !== 9);
+  const drums   = notes.filter(n => n.ch === 9);
+  const usePerc = melodic.length === 0;         // drums-only file → percussion mode
+  const useNotes = usePerc ? drums : melodic;
+  const droppedDrums = usePerc ? 0 : drums.length;
+
+  // BPM
+  const bpm = Math.min(300, Math.max(30, Math.round(60000000 / parsed.tempo)));
+  document.getElementById('bpm').value = bpm;
+
+  // Time signature (snap to the values the UI offers)
+  const numOpts = [2,3,4,5,6,7,9,12], denOpts = [2,4,8];
+  const tsNum = numOpts.includes(parsed.tsNum) ? parsed.tsNum : 4;
+  let   tsDen = Math.pow(2, parsed.tsDenPow);
+  if (!denOpts.includes(tsDen)) tsDen = 4;
+  document.getElementById('timesig-num').value = tsNum;
+  document.getElementById('timesig-den').value = tsDen;
+
+  // Instrument
+  let program = 0;
+  if (usePerc) program = 128;
+  else { const pc = parsed.programs.find(p => p.ch !== 9); if (pc) program = pc.program; }
+  document.getElementById('instrument').value = program;
+
+  // Pick the grid resolution that snaps with least error (prefer coarser)
+  const tpq = parsed.division;
+  let bestRes = 16, bestErr = Infinity;
+  for (const res of [16, 32, 8]) {
+    const st = tpq * 4 / res;
+    let err = 0;
+    for (const n of useNotes)
+      err += Math.abs(n.start/st - Math.round(n.start/st)) + Math.abs(n.end/st - Math.round(n.end/st));
+    err /= (useNotes.length * 2);
+    if (err < bestErr - 0.01) { bestErr = err; bestRes = res; }
+  }
+  gridResolution = bestRes;
+  document.querySelectorAll('.res-btn').forEach(b => b.classList.toggle('active', +b.dataset.res === bestRes));
+
+  updateTimeSig();                              // recompute STEPS_PER_BAR/BEAT
+  const stepTicks = tpq * 4 / gridResolution;
+
+  // Bars needed to hold the content
+  let maxEndStep = 0;
+  for (const n of useNotes) maxEndStep = Math.max(maxEndStep, Math.round(n.end / stepTicks));
+  const MAX_BARS = 64;
+  let bars = Math.max(1, Math.ceil(maxEndStep / STEPS_PER_BAR));
+  const truncated = bars > MAX_BARS;
+  if (truncated) bars = MAX_BARS;
+
+  numBars  = bars;
+  numSteps = numBars * STEPS_PER_BAR;
+
+  const barSel = document.getElementById('num-bars');
+  if (!Array.from(barSel.options).some(o => +o.value === bars)) {
+    const opt = document.createElement('option');
+    opt.value = bars; opt.textContent = bars + '小節';
+    barSel.appendChild(opt);
+  }
+  barSel.value = bars;
+
+  barChords = Array(numBars).fill('');
+  initData();
+
+  // Write notes into the grid (fold out-of-range pitches by octave)
+  let folded = 0, clipped = 0;
+  for (const n of useNotes) {
+    let midi = n.midi;
+    while (midi < MIDI_LO)  { midi += 12; folded++; }
+    while (midi >= MIDI_HI) { midi -= 12; folded++; }
+    const row = (MIDI_HI - 1) - midi;
+    let s = Math.round(n.start / stepTicks);
+    let e = Math.round(n.end   / stepTicks);
+    if (e <= s) e = s + 1;
+    if (s >= numSteps) { clipped++; continue; }
+    if (e > numSteps) e = numSteps;
+    for (let c = s; c < e; c++) grid_data[row][c] = true;
+  }
+
+  stopPlayback();
+  sfInstrument = null; sfLoadedProg = -1; setSfStatus('', '');
+  buildKeys();
+  if (audioCtx) loadSfInstrument(program);
+  buildHeader();
+  buildGrid();
+  scrollToMiddleC();
+
+  const msgs = [
+    `✅「${fileName}」を読み込みました`,
+    `${useNotes.length}音 ・ ${numBars}小節 ・ ${bpm}BPM ・ ${tsNum}/${tsDen}拍子 ・ ${gridResolution}分グリッド`,
+  ];
+  if (usePerc)         msgs.push('※ ドラム(GM Percussion)として読み込みました');
+  if (droppedDrums)    msgs.push(`※ ドラム(ch10)の${droppedDrums}音は割愛（単一楽器モデルのため）`);
+  if (folded)          msgs.push(`※ 音域外(C2〜B5外)の${folded}音をオクターブ移動して収めました`);
+  if (clipped)         msgs.push(`※ ${clipped}音が${MAX_BARS}小節の範囲外でした`);
+  if (truncated)       msgs.push(`※ ${MAX_BARS}小節を超える分は切り詰めました`);
+  if (bestErr > 0.05)  msgs.push('※ グリッドに合わないタイミングはスナップしました');
+  alert(msgs.join('\n'));
+}
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', async function() {
+  const file = this.files[0];
+  if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    applyImport(parseSMF(new Uint8Array(buf)), file.name);
+  } catch (err) {
+    alert('読み込みに失敗しました: ' + err.message);
+  }
+  this.value = '';   // allow re-selecting the same file
+});
+
 // Export button → open modal
 document.getElementById('btn-export').addEventListener('click', () => {
   const hasNotes = grid_data.some(row => row.some(v => v));
@@ -1653,9 +1869,7 @@ function fillGridFromChords(chords) {
 function renderAICard(idea) {
   const expanded = Array.from({ length: numBars }, (_, i) => idea.chords[i % idea.chords.length]);
   barChords = [...expanded];
-  buildChordRow();
-  document.getElementById('ai-mood').textContent   = idea.mood;
-  document.getElementById('ai-chords').textContent = expanded.join(' → ');
+  buildChordRow();   // this also refreshes the chord-progression display
   document.getElementById('ai-bpm').textContent    = 'BPM ' + idea.bpm;
   document.getElementById('ai-card').style.display = 'flex';
 }
