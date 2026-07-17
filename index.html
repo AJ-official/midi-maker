@@ -3,11 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#17191B">
 <title>MIDI Maker</title>
 <script src="https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.js"></script>
 <script src="https://surikov.github.io/webaudiofont/npm/dist/WebAudioFontPlayer.js"></script>
 <style>
 :root {
+  /* ダークモード/強制ダーク化でも色が変わらないよう固定 */
+  color-scheme: dark;
   --cell-w: 24px;
   /* ── 0xSynth Color System 確定版 2026-07-18 ──
      ベース: ミクチャコール / ミクティール#39C5BB(公式)=操作 /
@@ -33,6 +37,7 @@ body {
   background: var(--ox-bg);
   color: var(--ox-text);
   height: 100vh;
+  height: 100dvh; /* モバイルのアドレスバー分を除いた実表示領域 */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -325,6 +330,25 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: var(--ox-text); border-radius: 4px; padding: 5px 8px; font-size: 13px;
 }
 .meta-field select:focus { outline: none; border-color: var(--ox-miku); }
+
+/* ── Mobile ── */
+button, select, input[type="number"], input[type="range"] { touch-action: manipulation; }
+@media (max-width: 700px) {
+  #toolbar { gap: 7px; padding: 7px 8px; }
+  #toolbar h1 { display: none; } /* スマホでは操作スペースを優先 */
+  button { padding: 8px 11px; font-size: 12px; }
+  .ctrl { gap: 4px; }
+  .ctrl label { font-size: 11px; }
+  #volume { width: 54px; }
+  #volume-pct { display: none; }
+  #corner, #key-col { width: 44px; }
+  .key-row { padding-right: 3px; }
+  .chord-cell { font-size: 13px; }
+  #ai-card { padding: 8px 10px; }
+  #direction-btns { margin-left: 0; }
+  #home-screen h1 { font-size: 19px; }
+  #btn-generate { padding: 18px 36px; font-size: 20px; }
+}
 </style>
 </head>
 <body>
