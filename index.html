@@ -333,7 +333,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Mobile ── */
 button, select, input[type="number"], input[type="range"] { touch-action: manipulation; }
-@media (max-width: 700px) {
+/* スマホ・小型タブレット向け折りたたみUI。
+   max-width 932px = 横向きiPhone Pro Maxまでの幅を含む（縦向きスマホは当然含む）。
+   max-height 500px = さらに幅広の横向き端末も高さで捕捉。
+   → ラップトップ/デスクトップ（幅1024px以上）は従来のフル表示。 */
+@media (max-width: 932px), (max-height: 500px) {
   #toolbar { gap: 7px; padding: 7px 8px; }
   #toolbar h1 { display: none; } /* スマホでは操作スペースを優先 */
   button { padding: 8px 11px; font-size: 12px; }
