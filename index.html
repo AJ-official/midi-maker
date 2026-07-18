@@ -331,6 +331,24 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .meta-field select:focus { outline: none; border-color: var(--ox-miku); }
 
+/* ── Select-mode action bar ── */
+#select-actions {
+  display: none;
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--ox-surface); border: 1px solid var(--ox-miku);
+  border-radius: 14px; z-index: 150;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  max-width: calc(100vw - 16px); flex-wrap: wrap; justify-content: center;
+}
+#select-actions.show { display: flex; }
+#select-hint { font-size: 11px; color: var(--ox-text-dim); white-space: nowrap; }
+#select-actions button { padding: 8px 14px; font-size: 13px; }
+#btn-copy, #btn-paste { background: var(--ox-surface-2); color: var(--ox-text); border: 1px solid var(--ox-line); }
+#btn-delete { background: var(--ox-pink); color: #fff; }
+#btn-select-done { background: var(--ox-miku); color: var(--ox-on-accent); }
+#select-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ── Mobile ── */
 button, select, input[type="number"], input[type="range"] { touch-action: manipulation; }
 /* スマホ・小型タブレット向け折りたたみUI。
@@ -478,6 +496,15 @@ button, select, input[type="number"], input[type="range"] { touch-action: manipu
       <button class="btn-dir" data-dir="other">別案</button>
     </div>
   </div>
+</div>
+
+<!-- Select-mode action bar (mobile/desktop共通。キーボードなしでコピー/貼り付け/削除できる) -->
+<div id="select-actions">
+  <span id="select-hint">範囲をドラッグで選択</span>
+  <button id="btn-copy">📋 コピー</button>
+  <button id="btn-paste">📥 貼り付け</button>
+  <button id="btn-delete">🗑 削除</button>
+  <button id="btn-select-done">✓ 完了</button>
 </div>
 
 <div id="roll-wrap">
@@ -1085,6 +1112,7 @@ const inSel = (r, c) => { const n = getNorm(); return n && r >= n.r0 && r <= n.r
 
 function redrawSel() {
   document.querySelectorAll('.cell.selected').forEach(el => el.classList.remove('selected'));
+  updateSelActions();
   const n = getNorm(); if (!n) return;
   for (let r = n.r0; r <= n.r1; r++)
     for (let c = n.c0; c <= n.c1; c++)
@@ -1107,12 +1135,59 @@ function redrawPreview(cells, pivotR, pivotC) {
 function enterSelectMode(on) {
   selectMode = on;
   document.getElementById('btn-select').classList.toggle('active', on);
+  document.getElementById('select-actions').classList.toggle('show', on);
   if (!on) {
     sel = null; redrawSel();
     pasteMode = false; clearPreview();
     if (moveState) cancelMove();
   }
+  updateSelActions();
 }
+
+// ── 選択アクション（コピー/貼り付け/削除）: キーボードなしでも操作可能 ──
+function updateSelActions() {
+  const hasSel = !!getNorm();
+  document.getElementById('btn-copy').disabled = !hasSel;
+  document.getElementById('btn-delete').disabled = !hasSel;
+  document.getElementById('btn-paste').disabled = !clipboard;
+  const hint = document.getElementById('select-hint');
+  if (hint) hint.textContent = pasteMode ? 'タップして貼り付け'
+    : hasSel ? '選択中 → コピー/削除/ドラッグで移動'
+    : '範囲をドラッグで選択';
+}
+
+function doCopy() {
+  const n = getNorm(); if (!n) return;
+  const cells = [];
+  for (let r = n.r0; r <= n.r1; r++)
+    for (let c = n.c0; c <= n.c1; c++)
+      if (grid_data[r][c]) cells.push({ dr: r - n.r0, dc: c - n.c0 });
+  clipboard = { cells };
+  pasteMode = true;
+  redrawPreview(cells, hoverR, hoverC);
+  updateSelActions();
+}
+
+function doDelete() {
+  const n = getNorm(); if (!n) return;
+  for (let r = n.r0; r <= n.r1; r++)
+    for (let c = n.c0; c <= n.c1; c++) {
+      grid_data[r][c] = false;
+      cellEl(r, c)?.classList.remove('active');
+    }
+  updateSelActions();
+}
+
+function doPasteStart() {
+  if (!clipboard) return;
+  pasteMode = true;
+  updateSelActions();
+}
+
+document.getElementById('btn-copy').addEventListener('click', doCopy);
+document.getElementById('btn-delete').addEventListener('click', doDelete);
+document.getElementById('btn-paste').addEventListener('click', doPasteStart);
+document.getElementById('btn-select-done').addEventListener('click', () => enterSelectMode(false));
 
 function cancelMove() {
   if (!moveState) return;
@@ -1136,29 +1211,17 @@ document.addEventListener('keydown', e => {
     return;
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectMode) {
-    const n = getNorm(); if (!n) return;
-    for (let r = n.r0; r <= n.r1; r++)
-      for (let c = n.c0; c <= n.c1; c++) {
-        grid_data[r][c] = false;
-        cellEl(r, c)?.classList.remove('active');
-      }
+    doDelete();
     e.preventDefault();
     return;
   }
   if (e.ctrlKey && e.key === 'c') {
-    const n = getNorm(); if (!n) return;
-    const cells = [];
-    for (let r = n.r0; r <= n.r1; r++)
-      for (let c = n.c0; c <= n.c1; c++)
-        if (grid_data[r][c]) cells.push({ dr: r - n.r0, dc: c - n.c0 });
-    clipboard = { cells };
-    pasteMode = true;
-    redrawPreview(cells, hoverR, hoverC);
+    doCopy();
     e.preventDefault();
   }
   if (e.ctrlKey && e.key === 'v') {
     if (!clipboard) return;
-    if (!pasteMode) pasteMode = true;
+    pasteMode = true;
     commitPaste(hoverR, hoverC);
     e.preventDefault();
   }
@@ -1174,15 +1237,14 @@ function commitPaste(pivotR, pivotC) {
   });
   clearPreview();
   pasteMode = false;
+  updateSelActions();
 }
 
 // ── Mouse interaction ──────────────────────────────────
 let mouseDown = false;
 let dragMode  = null; // 'add' | 'remove' | 'select' | 'move'
 
-document.addEventListener('mousedown', () => mouseDown = true);
-document.addEventListener('mouseup', () => {
-  mouseDown = false;
+function finalizeDrag() {
   if (dragMode === 'move' && moveState) {
     // 移動確定
     const { dR, dC, notes } = moveState;
@@ -1200,7 +1262,52 @@ document.addEventListener('mouseup', () => {
     moveState = null;
   }
   dragMode = null;
+}
+
+document.addEventListener('mousedown', () => mouseDown = true);
+document.addEventListener('mouseup', () => {
+  mouseDown = false;
+  finalizeDrag();
 });
+
+// ── Touch support (mobile) ─────────────────────────────
+// タッチではドラッグ中に mouseenter が発火しないため、指の位置を
+// elementFromPoint で追跡してマウスと同じドラッグ処理を駆動する。
+// 選択/ペースト時のみジェスチャを奪ってスクロールを止める（通常モードは
+// タップで単発トグル＋ドラッグでスクロール、という挙動を維持）。
+let touchActive = false;
+
+function cellAtTouch(t) {
+  const el = document.elementFromPoint(t.clientX, t.clientY);
+  return (el && el.classList.contains('cell')) ? el : null;
+}
+
+(function initTouch() {
+  const grid = document.getElementById('grid');
+  grid.addEventListener('touchstart', function(e) {
+    if (!(selectMode || pasteMode)) return; // 通常モードはブラウザに任せる
+    const el = cellAtTouch(e.touches[0]);
+    if (!el) return;
+    e.preventDefault();
+    mouseDown = true;
+    touchActive = true;
+    onDown({ preventDefault() {}, currentTarget: el });
+  }, { passive: false });
+
+  grid.addEventListener('touchmove', function(e) {
+    if (!touchActive) return;
+    e.preventDefault(); // スクロール抑止
+    const el = cellAtTouch(e.touches[0]);
+    if (el) onEnter({ currentTarget: el });
+  }, { passive: false });
+
+  grid.addEventListener('touchend', function() {
+    if (!touchActive) return;
+    touchActive = false;
+    mouseDown = false;
+    finalizeDrag();
+  });
+})();
 
 function onDown(e) {
   e.preventDefault();
