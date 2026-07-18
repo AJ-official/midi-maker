@@ -339,8 +339,7 @@ button, select, input[type="number"], input[type="range"] { touch-action: manipu
   button { padding: 8px 11px; font-size: 12px; }
   .ctrl { gap: 4px; }
   .ctrl label { font-size: 11px; }
-  #volume { width: 54px; }
-  #volume-pct { display: none; }
+  #volume { width: 60px; }
   #corner, #key-col { width: 44px; }
   .key-row { padding-right: 3px; }
   .chord-cell { font-size: 13px; }
@@ -348,6 +347,26 @@ button, select, input[type="number"], input[type="range"] { touch-action: manipu
   #direction-btns { margin-left: 0; }
   #home-screen h1 { font-size: 19px; }
   #btn-generate { padding: 18px 36px; font-size: 20px; }
+
+  /* ── 簡素な折りたたみツールバー ──
+     デフォルト表示は 再生/停止/選択/クリア/音量/詳細 のみ。
+     「詳細」タップで toolbar-advanced（BPM等）と .adv-extra（読込/保存/ズーム/解像度）を展開。 */
+  #toolbar-advanced.hidden ~ .adv-extra { display: none; }
+
+  /* 並び順を画像に合わせる（DOM順はデスクトップ用に保持したまま視覚的に並べ替え） */
+  #btn-play     { order: 1; }
+  #btn-stop     { order: 2; }
+  #btn-select   { order: 3; }
+  #btn-clear    { order: 4; }
+  #vol-ctrl     { order: 5; }
+  #btn-advanced { order: 6; }
+  #toolbar-advanced > * { order: 7; } /* 展開時は簡素バーの後ろ（次の行）に回す */
+  .adv-extra    { order: 8; }
+
+  /* 折りたたみ時は AIカード（コード表示・BPM表示・方向性ボタン）も隠す。
+     「詳細」展開時（body.adv-open）のみ表示。 */
+  #ai-card { display: none !important; }
+  body.adv-open #ai-card { display: flex !important; }
 }
 </style>
 </head>
@@ -421,22 +440,22 @@ button, select, input[type="number"], input[type="range"] { touch-action: manipu
   <button id="btn-advanced">詳細 ▼</button>
   <button id="btn-play">▶ 再生</button>
   <button id="btn-stop">■ 停止</button>
-  <div class="ctrl">
+  <div class="ctrl" id="vol-ctrl">
     <label>🔊</label>
     <input type="range" id="volume" min="0" max="3" step="0.05" value="2">
     <span id="volume-pct">100%</span>
   </div>
   <button id="btn-select">⬚ 選択</button>
   <button id="btn-clear">🗑 クリア</button>
-  <button id="btn-import">📂 MIDI読み込み</button>
+  <button id="btn-import" class="adv-extra">📂 MIDI読み込み</button>
   <input type="file" id="import-file" accept=".mid,.midi,audio/midi,audio/x-midi" style="display:none">
-  <button id="btn-export">💾 MIDIで保存</button>
-  <div class="ctrl">
+  <button id="btn-export" class="adv-extra">💾 MIDIで保存</button>
+  <div class="ctrl adv-extra">
     <button id="btn-zoom-out">－</button>
     <span id="zoom-label">100%</span>
     <button id="btn-zoom-in">＋</button>
   </div>
-  <div class="ctrl">
+  <div class="ctrl adv-extra">
     <button class="res-btn" data-res="8">8分</button>
     <button class="res-btn active" data-res="16">16分</button>
     <button class="res-btn" data-res="32">32分</button>
@@ -1929,6 +1948,8 @@ document.querySelectorAll('.btn-dir').forEach(btn => {
 document.getElementById('btn-advanced').addEventListener('click', function() {
   const adv = document.getElementById('toolbar-advanced');
   const isHidden = adv.classList.toggle('hidden');
+  // モバイルの折りたたみ状態をbodyに反映（AIカードの表示連動に使用）
+  document.body.classList.toggle('adv-open', !isHidden);
   this.textContent = isHidden ? '詳細 ▼' : '詳細 ▲';
 });
 
